@@ -27,6 +27,26 @@ class MyBot(commands.Bot):
         super().__init__(*args, **kwargs)
         self._commands_synced = False
         self.i18n = I18nService(default_lang="pt")
+
+    @staticmethod
+    def _database_targets() -> list[tuple[str, dict[str, str | None]]]:
+        database_url = os.getenv("DATABASE_URL")
+        discrete_config = {
+            "user": os.getenv("DB_USER"),
+            "password": os.getenv("DB_PASSWORD"),
+            "database": os.getenv("DB_NAME"),
+            "host": os.getenv("DB_HOST"),
+            "port": os.getenv("DB_PORT"),
+        }
+
+        targets: list[tuple[str, dict[str, str | None]]] = []
+        if database_url:
+            targets.append(("DATABASE_URL", {"dsn": database_url}))
+
+        if all(discrete_config.values()):
+            targets.append(("DB_*", discrete_config))
+
+        return targets
     
     async def load_cogs(self):
         print("""
@@ -76,41 +96,52 @@ class MyBot(commands.Bot):
         
     async def close(self):
         print("[BOT] Shutting down...")
-        await self.pool.close()
+        pool = getattr(self, "pool", None)
+        if pool is not None:
+            await pool.close()
         await super().close()
     
     async def database_connect(self):
-        for i in range(5):
-            print(f"""
+        targets = self._database_targets()
+
+        if not targets:
+            print("[DB - Error] No database configuration found. Set DATABASE_URL or DB_USER/DB_PASSWORD/DB_NAME/DB_HOST/DB_PORT.")
+            await self.close()
+            return
+
+        for source_name, connection_kwargs in targets:
+            for i in range(5):
+                print(f"""
                 ================ DATABASE INIT ================
-                [DB] Status  : Starting connection(Tentative {i+1}/5)
+                [DB] Source  : {source_name}
+                [DB] Status  : Starting connection (Attempt {i+1}/5)
                 [DB] Host    : {os.getenv("DB_HOST")}
                 [DB] Port    : {os.getenv("DB_PORT")}
                 [DB] User    : {os.getenv("DB_USER")}
                 [DB] Database: {os.getenv("DB_NAME")}
-                
+
                 [DB] Trying to connect to the database...
                 ===============================================
             """)
-            try:
-                self.pool = await asyncpg.create_pool(
-                    user=os.getenv("DB_USER"),
-                    password=os.getenv("DB_PASSWORD"),
-                    database=os.getenv("DB_NAME"),
-                    host=os.getenv("DB_HOST"),
-                    port=os.getenv("DB_PORT")
-                )
-                print("[DB] Database connection established.")
-                break
-            except Exception as e:
-                print(f"[DB - Error] Database connection failed (Attempt {i+1}/5): {e}")
-                if i < 4:
-                    print("[DB] Retrying in 5 seconds...")
-                    await asyncio.sleep(5)
-                else:
-                    print("[DB - Error] All connection attempts failed. Shutting down.")
-                    await self.close()
-                    return
+                try:
+                    self.pool = await asyncpg.create_pool(**connection_kwargs)
+                    print(f"[DB] Database connection established via {source_name}.")
+                    break
+                except Exception as e:
+                    print(f"[DB - Error] Database connection failed via {source_name} (Attempt {i+1}/5): {e}")
+                    if i < 4:
+                        print("[DB] Retrying in 5 seconds...")
+                        await asyncio.sleep(5)
+                    else:
+                        print(f"[DB - Error] All attempts failed via {source_name}.")
+            else:
+                continue
+
+            break
+        else:
+            print("[DB - Error] Could not connect using DATABASE_URL or DB_* settings. Shutting down.")
+            await self.close()
+            return
 
         await asyncio.sleep(1)
         print("""
