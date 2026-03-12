@@ -1,0 +1,1 @@
+TICKET_CHANNEL_PREFIX = "ticket"
