@@ -69,13 +69,35 @@ class Events(commands.Cog):
             "log_channel_id": None,
             "log_join_leave": False,
             "log_message_delete": True,
+            "immune_role_ids": [],
         }
         if row is None:
+            role_rows = await self.database.fetch(
+                "SELECT role_id FROM guild_immune_roles WHERE guild_id = $1 ORDER BY role_id",
+                guild_id,
+            )
+            defaults["immune_role_ids"] = [int(item["role_id"]) for item in role_rows if item and item["role_id"] is not None]
             return defaults
 
         payload = dict(row)
         defaults.update({key: value for key, value in payload.items() if value is not None})
+        role_rows = await self.database.fetch(
+            "SELECT role_id FROM guild_immune_roles WHERE guild_id = $1 ORDER BY role_id",
+            guild_id,
+        )
+        defaults["immune_role_ids"] = [int(item["role_id"]) for item in role_rows if item and item["role_id"] is not None]
         return defaults
+
+    @staticmethod
+    def _is_member_immune(member: discord.Member, settings: dict[str, object]) -> bool:
+        if member.guild_permissions.administrator:
+            return True
+        if member.guild_permissions.manage_guild or member.guild_permissions.manage_messages or member.guild_permissions.ban_members or member.guild_permissions.kick_members:
+            return True
+
+        immune_ids = settings.get("immune_role_ids") or []
+        member_role_ids = {role.id for role in member.roles}
+        return any(int(role_id) in member_role_ids for role_id in immune_ids)
 
     async def _get_log_channel(self, guild: discord.Guild, settings: dict[str, object]) -> discord.TextChannel | None:
         if not bool(settings.get("logs_enabled")):
@@ -388,6 +410,10 @@ class Events(commands.Cog):
             return
 
         settings = await self._get_guild_settings(message.guild.id)
+        if isinstance(message.author, discord.Member) and self._is_member_immune(message.author, settings):
+            await self.bot.process_commands(message)
+            return
+
         violation_detected = await self._handle_spam_messages(message, settings)
         if not violation_detected:
             violation_detected = await self._handle_message_quality(message, settings)
