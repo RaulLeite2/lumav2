@@ -140,7 +140,19 @@ class Events(commands.Cog):
         )
 
         warning_count = int(warning_row["warning_count"]) if warning_row else 1
-        warning_limit = int(settings.get("quant_warnings") or 3)
+        escalation_rows = await self.database.fetch(
+            "SELECT threshold, action FROM guild_warning_escalations WHERE guild_id = $1 ORDER BY threshold ASC",
+            message.guild.id,
+        )
+        escalation_steps = [
+            {"threshold": int(item["threshold"]), "action": str(item["action"]).lower()}
+            for item in escalation_rows
+            if item and item["threshold"] is not None and item["action"] is not None
+        ]
+        if not escalation_steps:
+            escalation_steps = [{"threshold": int(settings.get("quant_warnings") or 3), "action": str(settings.get("acao") or "kick").lower()}]
+
+        warning_limit = max(step["threshold"] for step in escalation_steps)
         lang = await self._guild_lang(message.guild)
 
         embed = discord.Embed(
@@ -174,10 +186,11 @@ class Events(commands.Cog):
             except discord.Forbidden:
                 pass
 
-        if warning_count < warning_limit:
+        matching_step = next((step for step in escalation_steps if warning_count == int(step["threshold"])), None)
+        if matching_step is None:
             return
 
-        action = str(settings.get("acao") or "kick").lower()
+        action = str(matching_step["action"])
         try:
             if action == "kick":
                 await message.guild.kick(message.author, reason="Automod warn limit")
@@ -187,18 +200,12 @@ class Events(commands.Cog):
                 await message.guild.ban(message.author, reason="Automod warn limit", delete_message_days=0)
                 action_text = tr(lang, "banido(a)", "banned", "baneado(a)")
                 color = discord.Color.red()
-            elif action == "mute":
+            elif action in {"mute", "timeout"}:
                 await message.author.timeout(discord.utils.utcnow() + timedelta(hours=1), reason="Automod warn limit")
                 action_text = tr(lang, "silenciado(a)", "timed out", "silenciado(a)")
                 color = discord.Color.yellow()
             else:
                 return
-
-            await self.database.execute(
-                "DELETE FROM user_warnings WHERE user_id = $1 AND guild_id = $2",
-                message.author.id,
-                message.guild.id,
-            )
 
             escalation_embed = discord.Embed(
                 title=tr(lang, "Limite de avisos atingido", "Warning limit reached", "Limite de avisos alcanzado"),

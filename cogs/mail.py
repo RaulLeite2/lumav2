@@ -112,6 +112,7 @@ class Utils(commands.Cog):
         defaults: dict[str, object] = {
             "modmail_category_id": None,
             "modmail_alert_role_id": None,
+            "modmail_alert_role_ids": [],
             "modmail_anonymous_replies": False,
             "modmail_close_on_idle": True,
             "modmail_auto_close_hours": 48,
@@ -124,6 +125,17 @@ class Utils(commands.Cog):
 
         payload = dict(row)
         defaults.update({key: value for key, value in payload.items() if value is not None})
+
+        role_rows = await self.database.fetch(
+            "SELECT role_id FROM guild_modmail_roles WHERE guild_id = $1 ORDER BY role_id",
+            guild_id,
+        )
+        role_ids = [int(item["role_id"]) for item in role_rows if item and item["role_id"] is not None]
+        if role_ids:
+            defaults["modmail_alert_role_ids"] = role_ids
+        elif defaults.get("modmail_alert_role_id"):
+            defaults["modmail_alert_role_ids"] = [int(defaults["modmail_alert_role_id"])]
+
         return defaults
 
     async def _ensure_mail_enabled(self, interaction: discord.Interaction, lang: str) -> bool:
@@ -288,9 +300,13 @@ class Utils(commands.Cog):
         staff_embed.add_field(name={"pt": "Assunto", "en": "Subject", "es": "Asunto"}[lang], value=assunto[:1024], inline=False)
         staff_embed.add_field(name={"pt": "Mensagem", "en": "Message", "es": "Mensaje"}[lang], value=mensagem[:1024], inline=False)
 
-        if channel_created and settings.get("modmail_alert_role_id"):
-            role = interaction.guild.get_role(int(settings["modmail_alert_role_id"]))
-            await channel.send(content=role.mention if role else None, embed=staff_embed)
+        if channel_created and settings.get("modmail_alert_role_ids"):
+            mentions = []
+            for role_id in settings.get("modmail_alert_role_ids", []):
+                role = interaction.guild.get_role(int(role_id))
+                if role is not None:
+                    mentions.append(role.mention)
+            await channel.send(content=" ".join(mentions) if mentions else None, embed=staff_embed)
         else:
             await channel.send(embed=staff_embed)
 

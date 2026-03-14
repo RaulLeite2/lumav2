@@ -240,7 +240,20 @@ class Moderation(commands.Cog):
             "SELECT auto_moderation, quant_warnings, acao, warn_dm_user FROM guilds WHERE guild_id = $1",
             interaction.guild.id,
         )
-        quant_warnings = guild_settings["quant_warnings"] if guild_settings and guild_settings["quant_warnings"] else 3
+        escalation_rows = await db.fetch(
+            "SELECT threshold, action FROM guild_warning_escalations WHERE guild_id = $1 ORDER BY threshold ASC",
+            interaction.guild.id,
+        )
+        escalation_steps = [
+            {"threshold": int(item["threshold"]), "action": str(item["action"]).lower()}
+            for item in escalation_rows
+            if item and item["threshold"] is not None and item["action"] is not None
+        ]
+        if not escalation_steps:
+            fallback_threshold = guild_settings["quant_warnings"] if guild_settings and guild_settings["quant_warnings"] else 3
+            fallback_action = str(guild_settings["acao"] if guild_settings and guild_settings["acao"] else "kick").lower()
+            escalation_steps = [{"threshold": int(fallback_threshold), "action": fallback_action}]
+        quant_warnings = max(step["threshold"] for step in escalation_steps)
 
         embed = discord.Embed(
             title=tr(lang, "Usuario advertido", "User warned", "Usuario advertido"),
@@ -267,6 +280,22 @@ class Moderation(commands.Cog):
                 dm_embed.add_field(name=tr(lang, "Avisos", "Warnings", "Advertencias"), value=f"{warning_count}/{quant_warnings}", inline=True)
                 await user.send(embed=dm_embed)
             except discord.Forbidden:
+                pass
+
+        matching_step = next((step for step in escalation_steps if warning_count == int(step["threshold"])), None)
+        if matching_step is not None:
+            action = str(matching_step["action"])
+            try:
+                if action == "kick":
+                    await user.kick(reason=f"Warn escalation reached ({warning_count})")
+                    await ModerationLogger.log_action(self.bot, interaction.guild, "kick", interaction.user, user, reason=reason)
+                elif action == "ban":
+                    await user.ban(reason=f"Warn escalation reached ({warning_count})", delete_message_days=0)
+                    await ModerationLogger.log_action(self.bot, interaction.guild, "ban", interaction.user, user, reason=reason)
+                elif action in {"mute", "timeout"}:
+                    await user.timeout(discord.utils.utcnow() + timedelta(hours=1), reason=f"Warn escalation reached ({warning_count})")
+                    await ModerationLogger.log_action(self.bot, interaction.guild, "timeout", interaction.user, user, reason=reason, duration="1h")
+            except Exception:
                 pass
 
         await self.stats_service.increment_metric(interaction.guild.id, "warns_applied")
