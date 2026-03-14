@@ -362,6 +362,34 @@ class Setup(commands.Cog):
                     ephemeral=True,
                 )
 
+        class FormLevelingSettings(discord.ui.Modal):
+            def __init__(self):
+                super().__init__(title=tr(lang, "Configurar Leveling", "Configure Leveling", "Configurar Leveling"))
+                self.leveling_enabled_input = discord.ui.TextInput(
+                    label=tr(lang, "Ativar sistema de levels? (sim/nao)", "Enable leveling system? (yes/no)", "Activar sistema de niveles? (si/no)"),
+                    placeholder=tr(lang, "sim", "yes", "si"),
+                    required=True,
+                    max_length=5,
+                )
+                self.add_item(self.leveling_enabled_input)
+
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                enabled = self.leveling_enabled_input.value.strip().lower() in ["sim", "s", "yes", "y", "si"]
+                await db.execute(
+                    """
+                    INSERT INTO guilds (guild_id, leveling_enabled)
+                    VALUES ($1, $2)
+                    ON CONFLICT (guild_id)
+                    DO UPDATE SET leveling_enabled = $2, updated_at = CURRENT_TIMESTAMP
+                    """,
+                    modal_interaction.guild.id,
+                    enabled,
+                )
+                await modal_interaction.response.send_message(
+                    tr(lang, f"Sistema de levels {'ativado' if enabled else 'desativado'} com sucesso.", f"Leveling system {'enabled' if enabled else 'disabled'} successfully.", f"Sistema de niveles {'activado' if enabled else 'desactivado'} correctamente."),
+                    ephemeral=True,
+                )
+
         class SetupSelect(discord.ui.Select):
             def __init__(self):
                 options = [
@@ -388,6 +416,8 @@ class Setup(commands.Cog):
                     await select_interaction.response.send_modal(FormTicketDefaults())
                 elif choice == "ai":
                     await select_interaction.response.send_modal(FormAISettings())
+                elif choice == "leveling":
+                    await select_interaction.response.send_modal(FormLevelingSettings())
 
         class SetupView(discord.ui.View):
             def __init__(self):
@@ -414,7 +444,7 @@ class Setup(commands.Cog):
             async def close(self, button_interaction: discord.Interaction):
                 self.stop()
                 await button_interaction.response.edit_message(content=tr(lang, "Setup encerrado. Se precisar, e so me chamar de novo.", "Setup closed. If you need anything else, call me again.", "Setup cerrado. Si necesitas algo mas, llamame de nuevo."), embed=None, view=None)
-
+ 
         embed_main = discord.Embed(
             title=tr(lang, "Painel de setup da Luma", "Luma setup panel", "Panel de setup de Luma"),
             description=tr(lang, "Escolha um modulo para configurar e eu cuido do resto.", "Choose a module to configure and I will handle the rest.", "Elige un modulo para configurar y yo me encargo del resto."),
@@ -427,6 +457,7 @@ class Setup(commands.Cog):
         embed_main.add_field(name="ModMail", value=tr(lang, "Configure a categoria de atendimento privado.", "Configure the private support category.", "Configura la categoria de soporte privado."), inline=False)
         embed_main.add_field(name=tr(lang, "Padrao de Tickets", "Ticket Defaults", "Valores por Defecto de Tickets"), value=tr(lang, "Defina categoria e cargo de suporte padrao para novos tickets.", "Set default category and support role for new tickets.", "Define categoria y rol de soporte por defecto para nuevos tickets."), inline=False)
         embed_main.add_field(name="AI", value=tr(lang, "Ative ou desative respostas da IA no servidor.", "Enable or disable AI replies in the server.", "Activa o desactiva respuestas de IA en el servidor."), inline=False)
+        embed_main.add_field(name=tr(lang, "Leveling", "Leveling", "Nivelacion"), value=tr(lang, "Ative ou desative o sistema de levels no servidor.", "Enable or disable the leveling system in the server.", "Activa o desactiva el sistema de niveles en el servidor."), inline=False)
 
         await interaction.response.send_message(embed=embed_main, view=SetupView(), ephemeral=True)
 
