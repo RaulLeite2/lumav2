@@ -94,6 +94,9 @@ class Levels(commands.Cog):
         if message.author.bot or message.guild is None:
             return
 
+        if not await self.bot.is_cog_enabled(message.guild.id, "levels"):
+            return
+
         if not self.bot.pool:
             return
 
@@ -145,6 +148,10 @@ class Levels(commands.Cog):
             await self._send_ephemeral(interaction, tr(lang, "Esse comando so funciona em servidor.", "This command only works in a server.", "Este comando solo funciona en servidor."))
             return
 
+        if not await self.bot.is_cog_enabled(interaction.guild.id, "levels"):
+            await self._send_ephemeral(interaction, tr(lang, "O sistema de levels esta desativado neste servidor.", "The leveling system is disabled in this server.", "El sistema de niveles esta desactivado en este servidor."))
+            return
+
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         row = await self.database.fetchrow(
@@ -184,6 +191,10 @@ class Levels(commands.Cog):
         lang = await self._lang(interaction)
         if interaction.guild is None:
             await self._send_ephemeral(interaction, tr(lang, "Esse comando so funciona em servidor.", "This command only works in a server.", "Este comando solo funciona en servidor."))
+            return
+
+        if not await self.bot.is_cog_enabled(interaction.guild.id, "levels"):
+            await self._send_ephemeral(interaction, tr(lang, "O sistema de levels esta desativado neste servidor.", "The leveling system is disabled in this server.", "El sistema de niveles esta desactivado en este servidor."))
             return
 
         await interaction.response.defer(ephemeral=False, thinking=True)

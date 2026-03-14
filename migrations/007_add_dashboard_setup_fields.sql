@@ -1,0 +1,67 @@
+-- Migration 007: dashboard setup persistence for advanced configuration
+-- Created: 2026-03-14
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS automod_invite_filter BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS automod_link_filter BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS automod_caps_filter BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS automod_spam_threshold INT DEFAULT 6;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS automod_quarantine_role_id BIGINT;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS warn_public_reason_prompt BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS warn_dm_user BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS logs_enabled BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS log_ban_channel_id BIGINT;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS log_moderation BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS log_ban_events BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS log_join_leave BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS log_message_delete BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS log_modmail_transcripts BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS modmail_anonymous_replies BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS modmail_close_on_idle BOOLEAN DEFAULT TRUE;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS modmail_alert_role_id BIGINT;
+
+ALTER TABLE guilds
+ADD COLUMN IF NOT EXISTS modmail_auto_close_hours INT DEFAULT 48;
+
+CREATE TABLE IF NOT EXISTS guild_cog_settings (
+    id BIGSERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+    cog_name VARCHAR(100) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (guild_id, cog_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_guild_cog_settings_guild ON guild_cog_settings(guild_id);

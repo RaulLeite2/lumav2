@@ -183,6 +183,13 @@ class AI(commands.Cog):
 			)
 			return
 
+		if not await self.bot.is_cog_enabled(interaction.guild.id, "ai"):
+			await interaction.response.send_message(
+				self._msg("ai_disabled", lang),
+				ephemeral=True,
+			)
+			return
+
 		if not self.groq_api_key:
 			await interaction.response.send_message(
 				self._msg("missing_key", lang),

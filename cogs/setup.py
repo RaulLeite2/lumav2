@@ -44,7 +44,26 @@ class Setup(commands.Cog):
                     language_code,
                     ticket_default_category_id,
                     ticket_default_support_role_id,
-                    ai_enabled
+                    ai_enabled,
+                    leveling_enabled,
+                    logs_enabled,
+                    log_ban_channel_id,
+                    log_moderation,
+                    log_ban_events,
+                    log_join_leave,
+                    log_message_delete,
+                    log_modmail_transcripts,
+                    automod_invite_filter,
+                    automod_link_filter,
+                    automod_caps_filter,
+                    automod_spam_threshold,
+                    automod_quarantine_role_id,
+                    warn_public_reason_prompt,
+                    warn_dm_user,
+                    modmail_alert_role_id,
+                    modmail_anonymous_replies,
+                    modmail_close_on_idle,
+                    modmail_auto_close_hours
                 FROM guilds
                 WHERE guild_id = $1
                 """,
@@ -55,8 +74,12 @@ class Setup(commands.Cog):
             modmail_category = guild.get_channel(row["modmail_category_id"]) if row and row["modmail_category_id"] else None
             ticket_default_category = guild.get_channel(row["ticket_default_category_id"]) if row and row["ticket_default_category_id"] else None
             ticket_default_support_role = guild.get_role(row["ticket_default_support_role_id"]) if row and row["ticket_default_support_role_id"] else None
+            ban_log_channel = guild.get_channel(row["log_ban_channel_id"]) if row and row["log_ban_channel_id"] else None
+            quarantine_role = guild.get_role(row["automod_quarantine_role_id"]) if row and row["automod_quarantine_role_id"] else None
+            modmail_alert_role = guild.get_role(row["modmail_alert_role_id"]) if row and row["modmail_alert_role_id"] else None
             current_lang = (row["language_code"] if row and row["language_code"] else "pt").upper()
             ai_enabled = True if row is None or row["ai_enabled"] is None else bool(row["ai_enabled"])
+            leveling_enabled = bool(row["leveling_enabled"]) if row and row["leveling_enabled"] is not None else False
 
             embed = discord.Embed(
                 title=tr(lang, "Status atual do setup ✨", "Current setup status ✨", "Estado actual del setup ✨"),
@@ -74,7 +97,27 @@ class Setup(commands.Cog):
                 inline=False,
             )
             embed.add_field(name=tr(lang, "Anti-flood", "Anti-flood", "Anti-flood"), value=tr(lang, "Ativado" if row and row["smart_antiflood"] else "Desativado", "Enabled" if row and row["smart_antiflood"] else "Disabled", "Activado" if row and row["smart_antiflood"] else "Desactivado"), inline=False)
+            embed.add_field(
+                name=tr(lang, "Filtros do AutoMod", "AutoMod Filters", "Filtros de AutoMod"),
+                value=(
+                    f"Invite: {'ON' if row and row['automod_invite_filter'] else 'OFF'}\n"
+                    f"Links: {'ON' if row and row['automod_link_filter'] else 'OFF'}\n"
+                    f"Caps: {'ON' if row and row['automod_caps_filter'] else 'OFF'}\n"
+                    f"Spam: {row['automod_spam_threshold'] if row and row['automod_spam_threshold'] else 6}\n"
+                    f"Quarantine: {quarantine_role.mention if quarantine_role else tr(lang, 'Nao configurado', 'Not configured', 'No configurado')}"
+                ),
+                inline=False,
+            )
             embed.add_field(name="ModMail", value=modmail_category.mention if modmail_category else tr(lang, "Nao configurado", "Not configured", "No configurado"), inline=False)
+            embed.add_field(
+                name=tr(lang, "Preferencias de ModMail", "ModMail Preferences", "Preferencias de ModMail"),
+                value=(
+                    f"Alert role: {modmail_alert_role.mention if modmail_alert_role else tr(lang, 'Nao configurado', 'Not configured', 'No configurado')}\n"
+                    f"Anonymous replies: {'ON' if row and row['modmail_anonymous_replies'] else 'OFF'}\n"
+                    f"Auto close: {row['modmail_auto_close_hours'] if row and row['modmail_close_on_idle'] else 0}h"
+                ),
+                inline=False,
+            )
             embed.add_field(
                 name=tr(lang, "Padrao de Tickets", "Ticket Defaults", "Valores por Defecto de Tickets"),
                 value=(
@@ -84,8 +127,25 @@ class Setup(commands.Cog):
                 inline=False,
             )
             embed.add_field(
+                name=tr(lang, "Logs", "Logs", "Logs"),
+                value=(
+                    f"Master: {'ON' if row and row['logs_enabled'] else 'OFF'}\n"
+                    f"Moderation: {'ON' if row and row['log_moderation'] else 'OFF'}\n"
+                    f"Ban events: {'ON' if row and row['log_ban_events'] else 'OFF'}\n"
+                    f"Join/leave: {'ON' if row and row['log_join_leave'] else 'OFF'}\n"
+                    f"Deletes: {'ON' if row and row['log_message_delete'] else 'OFF'}\n"
+                    f"Ban channel: {ban_log_channel.mention if ban_log_channel else tr(lang, 'Nao configurado', 'Not configured', 'No configurado')}"
+                ),
+                inline=False,
+            )
+            embed.add_field(
                 name="AI",
                 value=tr(lang, "Ativada" if ai_enabled else "Desativada", "Enabled" if ai_enabled else "Disabled", "Activada" if ai_enabled else "Desactivada"),
+                inline=False,
+            )
+            embed.add_field(
+                name=tr(lang, "Leveling", "Leveling", "Nivelacion"),
+                value=tr(lang, "Ativado" if leveling_enabled else "Desativado", "Enabled" if leveling_enabled else "Disabled", "Activado" if leveling_enabled else "Desactivado"),
                 inline=False,
             )
             embed.add_field(name=tr(lang, "Idioma", "Language", "Idioma"), value=current_lang, inline=False)
@@ -193,17 +253,45 @@ class Setup(commands.Cog):
             def __init__(self):
                 super().__init__(title=tr(lang, "Configurar ModMail", "Configure ModMail", "Configurar ModMail"))
                 self.modmail_category = discord.ui.TextInput(
-                    label=tr(lang, "Nome da categoria ou 'criar'", "Category name or 'create'", "Nombre de categoria o 'crear'"),
+                    label=tr(lang, "Categoria (nome ou 'criar')", "Category (name or 'create')", "Categoria (nombre o 'crear')"),
                     placeholder="ModMail",
                     required=True,
                     max_length=100,
                 )
+                self.alert_role_input = discord.ui.TextInput(
+                    label=tr(lang, "Cargo de alerta (nome, ID ou 'nenhum')", "Alert role (name, ID or 'none')", "Rol de alerta (nombre, ID o 'ninguno')"),
+                    placeholder=tr(lang, "Moderadores", "Moderators", "Moderadores"),
+                    required=False,
+                    max_length=100,
+                )
+                self.anonymous_input = discord.ui.TextInput(
+                    label=tr(lang, "Respostas anonimas? (sim/nao)", "Anonymous replies? (yes/no)", "Respuestas anonimas? (si/no)"),
+                    placeholder=tr(lang, "nao", "no", "no"),
+                    required=False,
+                    max_length=5,
+                )
+                self.auto_close_input = discord.ui.TextInput(
+                    label=tr(lang, "Fechar por inatividade? (sim/nao)", "Auto-close on idle? (yes/no)", "Cerrar por inactividad? (si/no)"),
+                    placeholder=tr(lang, "sim", "yes", "si"),
+                    required=False,
+                    max_length=5,
+                )
+                self.auto_close_hours_input = discord.ui.TextInput(
+                    label=tr(lang, "Horas para fechar automaticamente", "Hours until auto-close", "Horas para cierre automatico"),
+                    placeholder="48",
+                    required=False,
+                    max_length=4,
+                )
                 self.add_item(self.modmail_category)
+                self.add_item(self.alert_role_input)
+                self.add_item(self.anonymous_input)
+                self.add_item(self.auto_close_input)
+                self.add_item(self.auto_close_hours_input)
 
             async def on_submit(self, modal_interaction: discord.Interaction):
                 guild = modal_interaction.guild
                 category_name = self.modmail_category.value.strip()
-                if category_name.lower() == "create":
+                if category_name.lower() in ["criar", "create", "crear"]:
                     category = await guild.create_category("ModMail")
                 else:
                     category = discord.utils.get(guild.categories, name=category_name)
@@ -212,17 +300,71 @@ class Setup(commands.Cog):
                     await modal_interaction.response.send_message(tr(lang, "Nao achei essa categoria. Confere o nome e tenta de novo.", "I could not find that category. Check the name and try again.", "No encontre esa categoria. Revisa el nombre e intenta de nuevo."), ephemeral=True)
                     return
 
+                # Resolve alert role
+                alert_role_id = None
+                role_raw = self.alert_role_input.value.strip() if self.alert_role_input.value else ""
+                if role_raw and role_raw.lower() not in ["nenhum", "none", "ninguno", ""]:
+                    digits = "".join(ch for ch in role_raw if ch.isdigit())
+                    resolved_role = guild.get_role(int(digits)) if digits else None
+                    if resolved_role is None:
+                        resolved_role = discord.utils.get(guild.roles, name=role_raw)
+                    if resolved_role is None:
+                        await modal_interaction.response.send_message(
+                            tr(lang, "Nao encontrei esse cargo de alerta.", "I could not find that alert role.", "No encontre ese rol de alerta."),
+                            ephemeral=True,
+                        )
+                        return
+                    alert_role_id = resolved_role.id
+
+                # Parse booleans with defaults
+                anonymous = self.anonymous_input.value.strip().lower() in ["sim", "s", "yes", "y", "si"] if self.anonymous_input.value else False
+                auto_close_raw = self.auto_close_input.value.strip().lower() if self.auto_close_input.value else "sim"
+                auto_close = auto_close_raw not in ["nao", "n", "no", "não"]
+
+                # Parse hours
+                auto_close_hours = 48
+                if self.auto_close_hours_input.value:
+                    try:
+                        parsed_hours = int(self.auto_close_hours_input.value.strip())
+                        auto_close_hours = max(1, parsed_hours)
+                    except ValueError:
+                        await modal_interaction.response.send_message(
+                            tr(lang, "Numero de horas invalido. Use ex: 48.", "Invalid hours number. Use e.g: 48.", "Numero de horas invalido. Usa ej: 48."),
+                            ephemeral=True,
+                        )
+                        return
+
                 await db.execute(
                     """
-                    INSERT INTO guilds (guild_id, modmail_category_id)
-                    VALUES ($1, $2)
+                    INSERT INTO guilds (
+                        guild_id, modmail_category_id, modmail_alert_role_id,
+                        modmail_anonymous_replies, modmail_close_on_idle, modmail_auto_close_hours
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (guild_id)
-                    DO UPDATE SET modmail_category_id = $2
+                    DO UPDATE SET
+                        modmail_category_id = $2,
+                        modmail_alert_role_id = $3,
+                        modmail_anonymous_replies = $4,
+                        modmail_close_on_idle = $5,
+                        modmail_auto_close_hours = $6,
+                        updated_at = CURRENT_TIMESTAMP
                     """,
                     guild.id,
                     category.id,
+                    alert_role_id,
+                    anonymous,
+                    auto_close,
+                    auto_close_hours,
                 )
-                await modal_interaction.response.send_message(tr(lang, f"Perfeito! Categoria de ModMail configurada: {category.name}", f"Perfect! ModMail category configured: {category.name}", f"Perfecto! Categoria de ModMail configurada: {category.name}"), ephemeral=True)
+
+                lines = [
+                    tr(lang, f"Perfeito! ModMail configurado na categoria **{category.name}**.", f"Perfect! ModMail configured under category **{category.name}**.", f"Perfecto! ModMail configurado en la categoria **{category.name}**."),
+                    tr(lang, f"Cargo de alerta: {resolved_role.mention if alert_role_id else 'nenhum'}", f"Alert role: {resolved_role.mention if alert_role_id else 'none'}", f"Rol de alerta: {resolved_role.mention if alert_role_id else 'ninguno'}") if "resolved_role" in dir() else "",
+                    tr(lang, f"Respostas anonimas: {'sim' if anonymous else 'nao'}", f"Anonymous replies: {'yes' if anonymous else 'no'}", f"Respuestas anonimas: {'si' if anonymous else 'no'}"),
+                    tr(lang, f"Auto-close: {'sim' if auto_close else 'nao'} ({auto_close_hours}h)", f"Auto-close: {'yes' if auto_close else 'no'} ({auto_close_hours}h)", f"Cierre automatico: {'si' if auto_close else 'no'} ({auto_close_hours}h)"),
+                ]
+                await modal_interaction.response.send_message("\n".join(l for l in lines if l), ephemeral=True)
 
         class FormSmartAntiFlood(discord.ui.Modal):
             def __init__(self):
@@ -396,9 +538,10 @@ class Setup(commands.Cog):
                     discord.SelectOption(label=tr(lang, "Canal de Logs", "Log Channel", "Canal de Logs"), description=tr(lang, "Configurar logs", "Configure logs", "Configurar logs"), value="logs"),
                     discord.SelectOption(label="AutoMod", description=tr(lang, "Moderacao automatica", "Automatic moderation", "Moderacion automatica"), value="automod"),
                     discord.SelectOption(label="Anti-Flood", description=tr(lang, "Protecao contra spam", "Spam protection", "Proteccion anti spam"), value="antiflood"),
-                    discord.SelectOption(label="ModMail", description=tr(lang, "Categoria de suporte", "Support category", "Categoria de soporte"), value="modmail"),
+                    discord.SelectOption(label="ModMail", description=tr(lang, "Categoria, alertas e preferencias", "Category, alerts and preferences", "Categoria, alertas y preferencias"), value="modmail"),
                     discord.SelectOption(label=tr(lang, "Padrao de Tickets", "Ticket Defaults", "Valores por Defecto de Tickets"), description=tr(lang, "Categoria e cargo padrao", "Default category and support role", "Categoria y rol de soporte por defecto"), value="ticket_defaults"),
                     discord.SelectOption(label="AI", description=tr(lang, "Ativar ou desativar IA", "Enable or disable AI", "Activar o desactivar IA"), value="ai"),
+                    discord.SelectOption(label=tr(lang, "Leveling", "Leveling", "Nivelacion"), description=tr(lang, "Ativar ou desativar sistema de levels", "Enable or disable leveling system", "Activar o desactivar sistema de niveles"), value="leveling"),
                 ]
                 super().__init__(placeholder=tr(lang, "Escolha uma configuracao", "Choose a setting", "Elige una configuracion"), options=options)
 
@@ -454,7 +597,7 @@ class Setup(commands.Cog):
         embed_main.add_field(name="Logs", value=tr(lang, "Defina o canal de logs do servidor.", "Set the server log channel.", "Define el canal de logs del servidor."), inline=False)
         embed_main.add_field(name="AutoMod", value=tr(lang, "Configure limite de avisos e acao automatica.", "Configure warning limit and automatic action.", "Configura limite de advertencias y accion automatica."), inline=False)
         embed_main.add_field(name="Anti-Flood", value=tr(lang, "Ative a protecao contra spam e excesso de mensagens.", "Enable spam and flood protection.", "Activa la proteccion contra spam y flood."), inline=False)
-        embed_main.add_field(name="ModMail", value=tr(lang, "Configure a categoria de atendimento privado.", "Configure the private support category.", "Configura la categoria de soporte privado."), inline=False)
+        embed_main.add_field(name="ModMail", value=tr(lang, "Configure a categoria, cargo de alerta, respostas anonimas e fechamento automatico por inatividade.", "Configure the category, alert role, anonymous replies and auto-close on idle.", "Configura la categoria, rol de alerta, respuestas anonimas y cierre automatico por inactividad."), inline=False)
         embed_main.add_field(name=tr(lang, "Padrao de Tickets", "Ticket Defaults", "Valores por Defecto de Tickets"), value=tr(lang, "Defina categoria e cargo de suporte padrao para novos tickets.", "Set default category and support role for new tickets.", "Define categoria y rol de soporte por defecto para nuevos tickets."), inline=False)
         embed_main.add_field(name="AI", value=tr(lang, "Ative ou desative respostas da IA no servidor.", "Enable or disable AI replies in the server.", "Activa o desactiva respuestas de IA en el servidor."), inline=False)
         embed_main.add_field(name=tr(lang, "Leveling", "Leveling", "Nivelacion"), value=tr(lang, "Ative ou desative o sistema de levels no servidor.", "Enable or disable the leveling system in the server.", "Activa o desactiva el sistema de niveles en el servidor."), inline=False)

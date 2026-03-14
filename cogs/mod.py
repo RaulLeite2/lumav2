@@ -18,21 +18,60 @@ def tr(lang: str, pt: str, en: str, es: str) -> str:
 
 class ModerationLogger:
     @staticmethod
-    async def get_log_channel(bot, guild_id: int) -> Optional[discord.TextChannel]:
+    async def get_log_channel(bot, guild_id: int, action: str) -> Optional[discord.TextChannel]:
         try:
             database = Database(bot.pool)
-            result = await database.fetchrow("SELECT log_channel_id FROM guilds WHERE guild_id = $1", guild_id)
-            if result and result["log_channel_id"]:
+            try:
+                result = await database.fetchrow(
+                    """
+                    SELECT
+                        log_channel_id,
+                        log_ban_channel_id,
+                        logs_enabled,
+                        log_moderation,
+                        log_ban_events
+                    FROM guilds
+                    WHERE guild_id = $1
+                    """,
+                    guild_id,
+                )
+            except Exception:
+                # Backward-compatible fallback while older schemas are still around.
+                result = await database.fetchrow("SELECT log_channel_id FROM guilds WHERE guild_id = $1", guild_id)
+
+            if not result:
+                return None
+
+            result = dict(result)
+
+            logs_enabled = True if "logs_enabled" not in result else bool(result["logs_enabled"])
+            if not logs_enabled:
+                return None
+
+            normalized_action = action.lower()
+            channel_id = result.get("log_channel_id")
+
+            if normalized_action in {"ban", "unban"}:
+                if "log_ban_events" in result and not bool(result["log_ban_events"]):
+                    return None
+                channel_id = result.get("log_ban_channel_id") or channel_id
+            else:
+                if "log_moderation" in result and not bool(result["log_moderation"]):
+                    return None
+
+            if channel_id:
                 guild = bot.get_guild(guild_id)
                 if guild:
-                    return guild.get_channel(result["log_channel_id"])
+                    channel = guild.get_channel(channel_id)
+                    if isinstance(channel, discord.TextChannel):
+                        return channel
         except Exception as e:
             print(f"[Moderation] log channel error: {e}")
         return None
 
     @staticmethod
     async def log_action(bot, guild: discord.Guild, action: str, moderator: discord.Member, target: discord.Member | discord.User, reason: Optional[str] = None, duration: Optional[str] = None):
-        log_channel = await ModerationLogger.get_log_channel(bot, guild.id)
+        log_channel = await ModerationLogger.get_log_channel(bot, guild.id, action)
         if log_channel is None:
             return False
 
@@ -75,6 +114,19 @@ class Moderation(commands.Cog):
     async def _lang(self, interaction: discord.Interaction) -> str:
         return await self.bot.i18n.language_for_interaction(self.bot, interaction)
 
+    async def _ensure_cog_enabled(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild is None:
+            return True
+        if await self.bot.is_cog_enabled(interaction.guild.id, "mod"):
+            return True
+
+        lang = await self._lang(interaction)
+        await interaction.response.send_message(
+            tr(lang, "A moderacao esta desativada neste servidor pelo painel.", "Moderation is disabled in this server by the dashboard.", "La moderacion esta desactivada en este servidor por el panel."),
+            ephemeral=True,
+        )
+        return False
+
     async def _check_perm(self, interaction: discord.Interaction, permission: str, action_desc: str) -> bool:
         lang = await self._lang(interaction)
         if not getattr(interaction.user.guild_permissions, permission, False):
@@ -89,6 +141,8 @@ class Moderation(commands.Cog):
     @mod.command(name="ban", description="Ban a user")
     async def ban(self, interaction: discord.Interaction, user: discord.Member, reason: str):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "ban_members", "ban"):
             return
         if user == interaction.user:
@@ -102,6 +156,8 @@ class Moderation(commands.Cog):
     @mod.command(name="unban", description="Unban by user ID")
     async def unban(self, interaction: discord.Interaction, user_id: str):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "ban_members", "unban"):
             return
 
@@ -116,6 +172,8 @@ class Moderation(commands.Cog):
     @mod.command(name="kick", description="Kick a user")
     async def kick(self, interaction: discord.Interaction, user: discord.Member, reason: str):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "kick_members", "kick"):
             return
         if user == interaction.user:
@@ -129,6 +187,8 @@ class Moderation(commands.Cog):
     @mod.command(name="timeout", description="Apply timeout to a user")
     async def timeout(self, interaction: discord.Interaction, user: discord.Member, duration: str, reason: str):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "moderate_members", "timeout members"):
             return
 
@@ -157,6 +217,8 @@ class Moderation(commands.Cog):
     @mod.command(name="warn", description="Warn a user")
     async def warn(self, interaction: discord.Interaction, user: discord.Member, reason: str):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "manage_messages", "warn users"):
             return
 
@@ -174,7 +236,10 @@ class Moderation(commands.Cog):
         )
         warning_count = warning_row["warning_count"] if warning_row else 1
 
-        guild_settings = await db.fetchrow("SELECT auto_moderation, quant_warnings, acao FROM guilds WHERE guild_id = $1", interaction.guild.id)
+        guild_settings = await db.fetchrow(
+            "SELECT auto_moderation, quant_warnings, acao, warn_dm_user FROM guilds WHERE guild_id = $1",
+            interaction.guild.id,
+        )
         quant_warnings = guild_settings["quant_warnings"] if guild_settings and guild_settings["quant_warnings"] else 3
 
         embed = discord.Embed(
@@ -185,6 +250,24 @@ class Moderation(commands.Cog):
         embed.add_field(name=tr(lang, "Avisos", "Warnings", "Advertencias"), value=f"{warning_count}/{quant_warnings}", inline=True)
         embed.add_field(name=tr(lang, "Motivo", "Reason", "Motivo"), value=reason, inline=False)
         await interaction.response.send_message(embed=embed)
+
+        if guild_settings is None or guild_settings["warn_dm_user"] is None or bool(guild_settings["warn_dm_user"]):
+            try:
+                dm_embed = discord.Embed(
+                    title=tr(lang, "Voce recebeu um aviso", "You received a warning", "Recibiste una advertencia"),
+                    description=tr(
+                        lang,
+                        f"Servidor: **{interaction.guild.name}**\nMotivo: {reason}",
+                        f"Server: **{interaction.guild.name}**\nReason: {reason}",
+                        f"Servidor: **{interaction.guild.name}**\nMotivo: {reason}",
+                    ),
+                    color=discord.Color.orange(),
+                    timestamp=discord.utils.utcnow(),
+                )
+                dm_embed.add_field(name=tr(lang, "Avisos", "Warnings", "Advertencias"), value=f"{warning_count}/{quant_warnings}", inline=True)
+                await user.send(embed=dm_embed)
+            except discord.Forbidden:
+                pass
 
         await self.stats_service.increment_metric(interaction.guild.id, "warns_applied")
         await self.audit_logger.log(
@@ -200,6 +283,8 @@ class Moderation(commands.Cog):
     @mod.command(name="ai-analisar", description="Analyze message with AI")
     async def ai_analisar(self, interaction: discord.Interaction, mensagem: str):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "manage_messages", "analyze messages"):
             return
 
@@ -274,6 +359,8 @@ class Moderation(commands.Cog):
     @mod.command(name="purge", description="Purge messages from current channel")
     async def purge(self, interaction: discord.Interaction, limit: int):
         lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
         if not await self._check_perm(interaction, "manage_messages", "purge messages"):
             return
 

@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import discord 
 import asyncpg 
@@ -23,10 +24,13 @@ if TOKEN is None:
     exit(1)
 
 class MyBot(commands.Bot):
+    COG_STATE_CACHE_SECONDS = 60
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._commands_synced = False
         self.i18n = I18nService(default_lang="pt")
+        self._cog_state_cache: dict[tuple[int, str], tuple[float, bool]] = {}
 
     @staticmethod
     def _database_targets() -> list[tuple[str, dict[str, str | None]]]:
@@ -66,6 +70,51 @@ class MyBot(commands.Bot):
                         print(f"  ✗ {filename[:-3]}: {e}")
         print(f"[COG] {loaded_count} extensão(ões) carregada(s).")
         print("            ==========================================\n")
+
+    async def is_cog_enabled(self, guild_id: int | None, cog_name: str) -> bool:
+        if guild_id is None:
+            return True
+
+        cache_key = (guild_id, cog_name)
+        now = time.monotonic()
+        cached = self._cog_state_cache.get(cache_key)
+        if cached and (now - cached[0]) < self.COG_STATE_CACHE_SECONDS:
+            return cached[1]
+
+        pool = getattr(self, "pool", None)
+        if pool is None:
+            return True
+
+        try:
+            async with pool.acquire() as connection:
+                enabled = await connection.fetchval(
+                    "SELECT enabled FROM guild_cog_settings WHERE guild_id = $1 AND cog_name = $2",
+                    guild_id,
+                    cog_name,
+                )
+        except Exception as exc:
+            print(f"[COG] Failed to load state for {cog_name} in guild {guild_id}: {exc}")
+            return True
+
+        effective = True if enabled is None else bool(enabled)
+        self._cog_state_cache[cache_key] = (now, effective)
+        return effective
+
+    def invalidate_cog_cache(self, guild_id: int | None = None, cog_name: str | None = None) -> None:
+        if guild_id is None and cog_name is None:
+            self._cog_state_cache.clear()
+            return
+
+        stale_keys = []
+        for cached_guild_id, cached_cog_name in self._cog_state_cache:
+            if guild_id is not None and cached_guild_id != guild_id:
+                continue
+            if cog_name is not None and cached_cog_name != cog_name:
+                continue
+            stale_keys.append((cached_guild_id, cached_cog_name))
+
+        for key in stale_keys:
+            self._cog_state_cache.pop(key, None)
 
     async def setup_hook(self):
         self._discover_internal_modules()
