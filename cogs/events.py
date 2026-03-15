@@ -70,6 +70,16 @@ class Events(commands.Cog):
             "log_join_leave": False,
             "log_message_delete": True,
             "immune_role_ids": [],
+            "welcome_enabled": False,
+            "welcome_channel_id": None,
+            "welcome_title": "Bem-vindo(a), {member}!",
+            "welcome_description": "Aproveite sua estadia em **{guild}**.",
+            "welcome_color": "#57cc99",
+            "leave_enabled": False,
+            "leave_channel_id": None,
+            "leave_title": "Ate logo, {member}.",
+            "leave_description": "{member} saiu de **{guild}**.",
+            "leave_color": "#ef476f",
         }
         if row is None:
             role_rows = await self.database.fetch(
@@ -77,6 +87,9 @@ class Events(commands.Cog):
                 guild_id,
             )
             defaults["immune_role_ids"] = [int(item["role_id"]) for item in role_rows if item and item["role_id"] is not None]
+            entry_exit_row = await self._fetch_entry_exit_settings(guild_id)
+            if entry_exit_row:
+                defaults.update({key: value for key, value in dict(entry_exit_row).items() if value is not None})
             return defaults
 
         payload = dict(row)
@@ -86,7 +99,93 @@ class Events(commands.Cog):
             guild_id,
         )
         defaults["immune_role_ids"] = [int(item["role_id"]) for item in role_rows if item and item["role_id"] is not None]
+        entry_exit_row = await self._fetch_entry_exit_settings(guild_id)
+        if entry_exit_row:
+            defaults.update({key: value for key, value in dict(entry_exit_row).items() if value is not None})
         return defaults
+
+    async def _fetch_entry_exit_settings(self, guild_id: int):
+        try:
+            return await self.database.fetchrow(
+                """
+                SELECT
+                    welcome_enabled,
+                    welcome_channel_id,
+                    welcome_title,
+                    welcome_description,
+                    welcome_color,
+                    leave_enabled,
+                    leave_channel_id,
+                    leave_title,
+                    leave_description,
+                    leave_color
+                FROM guild_entry_exit_embeds
+                WHERE guild_id = $1
+                """,
+                guild_id,
+            )
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_embed_color(raw_color: object, fallback: discord.Color) -> discord.Color:
+        if isinstance(raw_color, str):
+            normalized = raw_color.strip().lstrip("#")
+            if len(normalized) in {3, 6}:
+                try:
+                    if len(normalized) == 3:
+                        normalized = "".join(ch * 2 for ch in normalized)
+                    return discord.Color(int(normalized, 16))
+                except ValueError:
+                    return fallback
+        return fallback
+
+    @staticmethod
+    def _render_template(raw_text: object, *, member: discord.Member) -> str:
+        template = str(raw_text or "")
+        return template.replace("{member}", member.mention).replace("{guild}", member.guild.name)
+
+    async def _send_entry_exit_embed(self, member: discord.Member, settings: dict[str, object], *, is_join: bool) -> None:
+        if is_join:
+            enabled = bool(settings.get("welcome_enabled"))
+            channel_id = settings.get("welcome_channel_id")
+            title_raw = settings.get("welcome_title")
+            description_raw = settings.get("welcome_description")
+            color = self._resolve_embed_color(settings.get("welcome_color"), discord.Color.green())
+        else:
+            enabled = bool(settings.get("leave_enabled"))
+            channel_id = settings.get("leave_channel_id")
+            title_raw = settings.get("leave_title")
+            description_raw = settings.get("leave_description")
+            color = self._resolve_embed_color(settings.get("leave_color"), discord.Color.orange())
+
+        if not enabled or not channel_id:
+            return
+
+        try:
+            channel = member.guild.get_channel(int(channel_id))
+        except (TypeError, ValueError):
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        title = self._render_template(title_raw, member=member)[:256]
+        description = self._render_template(description_raw, member=member)[:4096]
+        if not title and not description:
+            return
+
+        embed = discord.Embed(
+            title=title or None,
+            description=description or None,
+            color=color,
+            timestamp=discord.utils.utcnow(),
+        )
+
+        try:
+            await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException):
+            return
 
     @staticmethod
     def _is_member_immune(member: discord.Member, settings: dict[str, object]) -> bool:
@@ -348,6 +447,7 @@ class Events(commands.Cog):
             return
 
         settings = await self._get_guild_settings(member.guild.id)
+        await self._send_entry_exit_embed(member, settings, is_join=True)
         lang = await self._guild_lang(member.guild)
         await self._log_event(
             member.guild,
@@ -363,6 +463,7 @@ class Events(commands.Cog):
             return
 
         settings = await self._get_guild_settings(member.guild.id)
+        await self._send_entry_exit_embed(member, settings, is_join=False)
         lang = await self._guild_lang(member.guild)
         await self._log_event(
             member.guild,

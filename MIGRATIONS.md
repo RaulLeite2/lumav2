@@ -9,7 +9,8 @@ As migrations SQL gerenciam o schema do banco de dados. Todos os arquivos `.sql`
 ```
 migrations/
 ├── 001_initial_schema.sql      # Schema inicial com tabelas guilds, user_warnings, moderation_logs
-├── 002_add_new_table.sql       # (futuro) adicionar novas tabelas
+├── 007_add_dashboard_setup_fields.sql
+├── 008_add_entry_exit_embeds.sql
 └── ...
 ```
 
