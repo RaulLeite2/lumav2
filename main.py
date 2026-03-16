@@ -57,17 +57,20 @@ class MyBot(commands.Bot):
             ================ COG LOADER ================
             [COG] Carregando extensões...
         """)
-        cog = os.listdir("cogs")
+        cogs_dir = Path(__file__).parent / "cogs"
         loaded_count = 0
-        if cog:
-            for filename in cog:
-                if filename.endswith(".py") and filename != "__init__.py":
-                    try:
-                        await self.load_extension(f"cogs.{filename[:-3]}")
-                        print(f"  ✓ {filename[:-3]} carregado com sucesso")
-                        loaded_count += 1
-                    except Exception as e:
-                        print(f"  ✗ {filename[:-3]}: {e}")
+        for path in sorted(cogs_dir.rglob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            # Converte o path para notação de módulo Python:
+            # cogs/moderation/mod.py → cogs.moderation.mod
+            module_name = ".".join(path.relative_to(Path(__file__).parent).with_suffix("").parts)
+            try:
+                await self.load_extension(module_name)
+                print(f"  ✓ {module_name} carregado com sucesso")
+                loaded_count += 1
+            except Exception as e:
+                print(f"  ✗ {module_name}: {e}")
         print(f"[COG] {loaded_count} extensão(ões) carregada(s).")
         print("            ==========================================\n")
 
