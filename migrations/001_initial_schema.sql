@@ -41,3 +41,13 @@ CREATE TABLE IF NOT EXISTS moderation_logs (
 CREATE INDEX IF NOT EXISTS idx_moderation_logs_guild ON moderation_logs(guild_id);
 CREATE INDEX IF NOT EXISTS idx_moderation_logs_user ON moderation_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_moderation_logs_created ON moderation_logs(created_at);
+
+-- Economy tables
+CREATE TABLE IF NOT EXISTS economy (
+    user_id BIGINT PRIMARY KEY,
+    balance BIGINT NOT NULL DEFAULT 0 CHECK (balance >= 0),
+    last_daily TIMESTAMPTZ,
+    last_weekly TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -70,6 +70,141 @@ TEXTS = {
         "en": "I could not send DM to the user (it may be blocked).",
         "es": "No pude enviar DM al usuario (puede que este bloqueado).",
     },
+    "appeal_exists": {
+        "pt": "Ja existe uma apelacao aberta para voce. Continue por la, combinado?",
+        "en": "There is already an open appeal for you. Please continue there.",
+        "es": "Ya existe una apelacion abierta para ti. Continuala alli.",
+    },
+    "appeal_created": {
+        "pt": "Sua apelacao foi enviada com sucesso. A equipe vai analisar assim que possivel.",
+        "en": "Your appeal was sent successfully. The team will review it as soon as possible.",
+        "es": "Tu apelacion fue enviada correctamente. El equipo la revisara lo antes posible.",
+    },
+    "appeal_channel_label": {
+        "pt": "Canal da apelacao",
+        "en": "Appeal channel",
+        "es": "Canal de apelacion",
+    },
+    "appeal_modal_title": {
+        "pt": "Enviar apelacao",
+        "en": "Submit appeal",
+        "es": "Enviar apelacion",
+    },
+    "appeal_subject_label": {
+        "pt": "Assunto da apelacao",
+        "en": "Appeal subject",
+        "es": "Asunto de la apelacion",
+    },
+    "appeal_subject_placeholder": {
+        "pt": "Ex: Reconsideracao de banimento",
+        "en": "Example: Ban reconsideration",
+        "es": "Ej: Reconsideracion del baneo",
+    },
+    "appeal_message_label": {
+        "pt": "Explique seu recurso",
+        "en": "Explain your appeal",
+        "es": "Explica tu apelacion",
+    },
+    "appeal_message_placeholder": {
+        "pt": "Descreva o contexto, o que aconteceu e por que a equipe deveria revisar o caso.",
+        "en": "Describe the context, what happened, and why the team should review your case.",
+        "es": "Describe el contexto, que paso y por que el equipo deberia revisar tu caso.",
+    },
+    "appeal_staff_title": {
+        "pt": "Nova apelacao",
+        "en": "New appeal",
+        "es": "Nueva apelacion",
+    },
+    "appeal_staff_description": {
+        "pt": "Uma nova apelacao foi aberta sem alerta automatico de cargo.",
+        "en": "A new appeal was opened without automatic role ping.",
+        "es": "Se abrio una nueva apelacion sin ping automatico de rol.",
+    },
+    "appeal_user_title": {
+        "pt": "Apelacao registrada",
+        "en": "Appeal submitted",
+        "es": "Apelacion registrada",
+    },
+    "appeal_subject_field": {
+        "pt": "Assunto",
+        "en": "Subject",
+        "es": "Asunto",
+    },
+    "appeal_message_field": {
+        "pt": "Apelacao",
+        "en": "Appeal",
+        "es": "Apelacion",
+    },
+    "appeal_status_field": {
+        "pt": "Status",
+        "en": "Status",
+        "es": "Estado",
+    },
+    "appeal_status_open": {
+        "pt": "Aberta para analise",
+        "en": "Open for review",
+        "es": "Abierta para revision",
+    },
+    "appeal_guidance_field": {
+        "pt": "Proximos passos",
+        "en": "Next steps",
+        "es": "Siguientes pasos",
+    },
+    "appeal_guidance_value": {
+        "pt": "Revise o contexto, responda no canal e use /mail fechar quando a decisao for concluida.",
+        "en": "Review the context, reply in the channel, and use /mail fechar when the decision is complete.",
+        "es": "Revisa el contexto, responde en el canal y usa /mail fechar cuando la decision este completa.",
+    },
+    "appeal_accept_button": {
+        "pt": "Aceitar apelacao",
+        "en": "Accept appeal",
+        "es": "Aceptar apelacion",
+    },
+    "appeal_reject_button": {
+        "pt": "Negar apelacao",
+        "en": "Reject appeal",
+        "es": "Rechazar apelacion",
+    },
+    "appeal_staff_only": {
+        "pt": "Apenas a staff com permissao de moderacao pode decidir apelacoes.",
+        "en": "Only staff with moderation permissions can decide appeals.",
+        "es": "Solo el staff con permisos de moderacion puede decidir apelaciones.",
+    },
+    "appeal_accepted_title": {
+        "pt": "Apelacao aceita",
+        "en": "Appeal accepted",
+        "es": "Apelacion aceptada",
+    },
+    "appeal_rejected_title": {
+        "pt": "Apelacao negada",
+        "en": "Appeal rejected",
+        "es": "Apelacion rechazada",
+    },
+    "appeal_decision_dm": {
+        "pt": "Sua apelacao no servidor **{guild}** foi marcada como **{decision}** por {moderator}.",
+        "en": "Your appeal in **{guild}** was marked as **{decision}** by {moderator}.",
+        "es": "Tu apelacion en **{guild}** fue marcada como **{decision}** por {moderator}.",
+    },
+    "appeal_accepted_label": {
+        "pt": "aceita",
+        "en": "accepted",
+        "es": "aceptada",
+    },
+    "appeal_rejected_label": {
+        "pt": "negada",
+        "en": "rejected",
+        "es": "rechazada",
+    },
+    "appeal_decision_by": {
+        "pt": "Decisao por",
+        "en": "Decision by",
+        "es": "Decision por",
+    },
+    "appeal_decision_logged": {
+        "pt": "A decisao foi registrada e os botoes foram bloqueados.",
+        "en": "The decision was logged and the buttons were disabled.",
+        "es": "La decision fue registrada y los botones fueron desactivados.",
+    },
 }
 
 
@@ -157,6 +292,25 @@ class Utils(commands.Cog):
         async for last_message in channel.history(limit=1):
             return last_message.created_at.replace(tzinfo=None)
         return channel.created_at.replace(tzinfo=None)
+
+    @staticmethod
+    def _safe_channel_slug(prefix: str, user: discord.abc.User) -> str:
+        base_name = f"{prefix}-{user.name}".lower().replace(" ", "-")
+        safe_name = "".join(ch for ch in base_name if ch.isalnum() or ch == "-")[:80]
+        return f"{safe_name}-{user.id}"[:95]
+
+    @staticmethod
+    def _can_manage_appeals(member: discord.abc.User | discord.Member | None) -> bool:
+        if not isinstance(member, discord.Member):
+            return False
+        perms = member.guild_permissions
+        return bool(
+            perms.administrator
+            or perms.manage_guild
+            or perms.manage_messages
+            or perms.moderate_members
+            or perms.ban_members
+        )
 
     async def _build_transcript(self, channel: discord.TextChannel) -> str:
         lines: list[str] = []
@@ -259,6 +413,40 @@ class Utils(commands.Cog):
         else:
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    async def _send_success(self, interaction: discord.Interaction, title: str, description: str):
+        embed = discord.Embed(title=title, description=description, color=discord.Color.green())
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def _notify_appeal_decision(
+        self,
+        user: discord.User,
+        guild: discord.Guild,
+        moderator: discord.abc.User,
+        lang: str,
+        accepted: bool,
+    ) -> None:
+        decision_key = "appeal_accepted_label" if accepted else "appeal_rejected_label"
+        title_key = "appeal_accepted_title" if accepted else "appeal_rejected_title"
+        embed = discord.Embed(
+            title=self._t(title_key, lang),
+            description=self._t(
+                "appeal_decision_dm",
+                lang,
+                guild=guild.name,
+                decision=self._t(decision_key, lang),
+                moderator=getattr(moderator, "mention", str(moderator)),
+            ),
+            color=discord.Color.green() if accepted else discord.Color.red(),
+            timestamp=datetime.now(),
+        )
+        try:
+            await user.send(embed=embed)
+        except discord.Forbidden:
+            pass
+
     @mail.command(name="enviar", description="Enviar mensagem para a equipe de moderacao")
     async def modmail(self, interaction: discord.Interaction, assunto: str, mensagem: str):
         lang = await self._lang(interaction)
@@ -279,9 +467,7 @@ class Utils(commands.Cog):
             await self._send_error(interaction, "Error", self._t("modmail_not_configured", lang))
             return
 
-        base_name = f"modmail-{interaction.user.name}".lower().replace(" ", "-")
-        safe_name = "".join(ch for ch in base_name if ch.isalnum() or ch == "-")[:80]
-        channel_name = f"{safe_name}-{interaction.user.id}"[:95]
+        channel_name = self._safe_channel_slug("modmail", interaction.user)
 
         channel = discord.utils.get(category.text_channels, name=channel_name)
         channel_created = channel is None
@@ -447,6 +633,155 @@ class Utils(commands.Cog):
             embed.add_field(name={"pt": "Motivo", "en": "Reason", "es": "Motivo"}[lang], value=motivo[:1024], inline=False)
 
         await interaction.response.send_message(embed=embed, view=CloseView(self), ephemeral=True)
+
+    @mail.command(name="appelar", description="Apelar para reabrir um ModMail fechado")
+    async def appeal(self, interaction: discord.Interaction):
+        lang = await self._lang(interaction)
+        if interaction.guild is None:
+            await self._send_error(interaction, "Error", self._t("guild_only", lang))
+            return
+
+        if not await self._ensure_mail_enabled(interaction, lang):
+            return
+
+        settings = await self._fetch_settings(interaction.guild.id)
+        if settings["modmail_category_id"] is None:
+            await self._send_error(interaction, "Error", self._t("modmail_not_configured", lang))
+            return
+
+        category = interaction.guild.get_channel(int(settings["modmail_category_id"]))
+        if not isinstance(category, discord.CategoryChannel):
+            await self._send_error(interaction, "Error", self._t("modmail_not_configured", lang))
+            return
+
+        cog = self
+
+        class AppealModal(discord.ui.Modal, title=TEXTS["appeal_modal_title"][lang]):
+            subject = discord.ui.TextInput(
+                label=TEXTS["appeal_subject_label"][lang],
+                placeholder=TEXTS["appeal_subject_placeholder"][lang],
+                max_length=120,
+            )
+            message = discord.ui.TextInput(
+                label=TEXTS["appeal_message_label"][lang],
+                placeholder=TEXTS["appeal_message_placeholder"][lang],
+                style=discord.TextStyle.paragraph,
+                max_length=1500,
+            )
+
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                channel_name = cog._safe_channel_slug("appeal", modal_interaction.user)
+                existing_channel = discord.utils.get(category.text_channels, name=channel_name)
+                overwrite = discord.PermissionOverwrite(
+                    send_messages=True,
+                    read_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True,
+                )
+
+                channel = existing_channel
+                created_now = False
+                if channel is None:
+                    channel = await category.create_text_channel(
+                        channel_name,
+                        topic=f"ModMail appeal from {modal_interaction.user} ({modal_interaction.user.id})",
+                        overwrites={modal_interaction.user: overwrite},
+                    )
+                    created_now = True
+
+                if channel is None:
+                    await cog._send_error(modal_interaction, "Error", cog._t("modmail_not_configured", lang))
+                    return
+
+                if not created_now:
+                    await cog._send_error(modal_interaction, "Error", cog._t("appeal_exists", lang))
+                    return
+
+                class AppealDecisionView(discord.ui.View):
+                    def __init__(self):
+                        super().__init__(timeout=None)
+
+                    async def _resolve(self, button_interaction: discord.Interaction, accepted: bool):
+                        if not cog._can_manage_appeals(button_interaction.user):
+                            await cog._send_error(button_interaction, "Error", cog._t("appeal_staff_only", lang))
+                            return
+
+                        decision_title = cog._t("appeal_accepted_title", lang) if accepted else cog._t("appeal_rejected_title", lang)
+                        decision_label = cog._t("appeal_accepted_label", lang) if accepted else cog._t("appeal_rejected_label", lang)
+
+                        for item in self.children:
+                            item.disabled = True
+
+                        decision_embed = discord.Embed(
+                            title=decision_title,
+                            description=cog._t("appeal_decision_logged", lang),
+                            color=discord.Color.green() if accepted else discord.Color.red(),
+                            timestamp=datetime.now(),
+                        )
+                        decision_embed.add_field(
+                            name=cog._t("appeal_status_field", lang),
+                            value=decision_label,
+                            inline=True,
+                        )
+                        decision_embed.add_field(
+                            name=cog._t("appeal_decision_by", lang),
+                            value=button_interaction.user.mention,
+                            inline=True,
+                        )
+
+                        await cog._notify_appeal_decision(
+                            modal_interaction.user,
+                            modal_interaction.guild,
+                            button_interaction.user,
+                            lang,
+                            accepted,
+                        )
+
+                        await button_interaction.response.edit_message(view=self)
+                        await channel.send(embed=decision_embed)
+
+                    @discord.ui.button(label=TEXTS["appeal_accept_button"][lang], style=discord.ButtonStyle.success)
+                    async def accept(self, button_interaction: discord.Interaction, _: discord.ui.Button):
+                        await self._resolve(button_interaction, accepted=True)
+
+                    @discord.ui.button(label=TEXTS["appeal_reject_button"][lang], style=discord.ButtonStyle.danger)
+                    async def reject(self, button_interaction: discord.Interaction, _: discord.ui.Button):
+                        await self._resolve(button_interaction, accepted=False)
+
+                staff_embed = discord.Embed(
+                    title=cog._t("appeal_staff_title", lang),
+                    description=f"{cog._t('appeal_staff_description', lang)}\n{modal_interaction.user.mention}",
+                    color=discord.Color.orange(),
+                    timestamp=datetime.now(),
+                )
+                staff_embed.add_field(name=cog._t("appeal_subject_field", lang), value=str(self.subject)[:1024], inline=False)
+                staff_embed.add_field(name=cog._t("appeal_message_field", lang), value=str(self.message)[:1024], inline=False)
+                staff_embed.add_field(name=cog._t("appeal_status_field", lang), value=cog._t("appeal_status_open", lang), inline=True)
+                staff_embed.add_field(name=cog._t("appeal_guidance_field", lang), value=cog._t("appeal_guidance_value", lang), inline=False)
+
+                user_embed = discord.Embed(
+                    title=cog._t("appeal_user_title", lang),
+                    description=cog._t("appeal_created", lang),
+                    color=discord.Color.green(),
+                    timestamp=datetime.now(),
+                )
+                user_embed.add_field(name=cog._t("appeal_subject_field", lang), value=str(self.subject)[:1024], inline=False)
+                user_embed.add_field(
+                    name=cog._t("appeal_channel_label", lang),
+                    value=channel.mention,
+                    inline=False,
+                )
+
+                await channel.send(embed=staff_embed, view=AppealDecisionView())
+                await cog._send_success(modal_interaction, cog._t("appeal_user_title", lang), cog._t("appeal_created", lang) + f"\n{channel.mention}")
+
+                try:
+                    await modal_interaction.user.send(embed=user_embed)
+                except discord.Forbidden:
+                    pass
+
+        await interaction.response.send_modal(AppealModal())
 
 
 async def setup(bot):
