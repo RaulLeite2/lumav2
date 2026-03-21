@@ -51,3 +51,21 @@ CREATE TABLE IF NOT EXISTS economy (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create indexes for economy table
+CREATE INDEX IF NOT EXISTS idx_economy_user ON economy(user_id);
+CREATE INDEX IF NOT EXISTS idx_economy_balance ON economy(balance);
+CREATE INDEX IF NOT EXISTS idx_economy_last_daily ON economy(last_daily);
+CREATE INDEX IF NOT EXISTS idx_economy_last_weekly ON economy(last_weekly);
+CREATE INDEX IF NOT EXISTS idx_economy_created_at ON economy(created_at);
+CREATE INDEX IF NOT EXISTS idx_economy_updated_at ON economy(updated_at);
+
+CREATE TABLE IF NOT EXISTS joinexitmessages (
+    guild_id BIGINT PRIMARY KEY,
+    isenabled_join BOOLEAN DEFAULT FALSE,
+    isenabled_exit BOOLEAN DEFAULT FALSE,
+    join_message TEXT,
+    exit_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
