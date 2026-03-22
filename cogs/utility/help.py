@@ -5,139 +5,490 @@ from discord.ext import commands
 
 HELP_UI = {
     "pt": {
-        "main_title": "Cantinho de Ajuda da Luma ✨",
-        "main_desc": "Escolha uma categoria e eu te mostro os comandos principais, bem direitinho.",
+        "main_title": "Central de Ajuda da Luma",
+        "main_desc": "Escolha uma categoria para ver comandos, exemplos e o fluxo mais rapido para usar cada modulo.",
         "usage_name": "Como usar",
-        "usage_value": "1. Escolha uma categoria\n2. Veja os comandos\n3. Teste no seu servidor",
-        "footer": "Luma • fofinha e pronta para ajudar",
-        "placeholder": "Selecione uma categoria com carinho",
-        "options": [
-            ("geral", "Geral", "Comandos basicos"),
-            ("admin", "Administracao", "Comandos administrativos"),
-            ("mail", "Mail", "Mensagens privadas"),
-            ("mod", "Moderacao", "Controle de membros"),
-            ("setup", "Setup", "Configuracao do servidor"),
-        ],
-        "cards": {
-            "geral": ("Comandos Gerais", "Use estes comandos para conversar comigo e explorar a Luma."),
-            "admin": ("Comandos de Administracao", "Ferramentas para manter tudo organizado com tranquilidade."),
-            "mail": ("Comandos de Mail", "Canal de mensagens privadas com a equipe."),
-            "mod": ("Comandos de Moderacao", "Acoes para proteger a comunidade com equilibrio."),
-            "setup": ("Comandos de Setup", "Configuracoes principais para deixar o servidor do seu jeitinho."),
+        "usage_value": "1. Escolha uma categoria\n2. Veja os comandos principais\n3. Copie o exemplo e adapte ao seu servidor",
+        "summary_name": "Cobertura",
+        "summary_value": "Moderacao, IA, suporte, economia, levels e configuracao em um unico painel.",
+        "commands_name": "Comandos principais",
+        "example_name": "Exemplo rapido",
+        "tip_name": "Dica da Luma",
+        "tip_value": "Se um modulo estiver desligado no painel, alguns comandos podem responder dizendo que o recurso esta desativado para esse servidor.",
+        "footer": "Luma • ajuda interativa",
+        "placeholder": "Selecione uma categoria",
+        "back_label": "Visao geral",
+        "options": {
+            "general": ("Geral", "Comandos rapidos do dia a dia"),
+            "ai": ("IA", "Perguntas e respostas com a Luma"),
+            "moderation": ("Moderacao", "Acoes de staff e protecao"),
+            "support": ("Suporte", "Modmail, tickets e cargos"),
+            "economy": ("Economia", "Saldo, loja e ranking"),
+            "levels": ("Levels", "XP, rank e leaderboard"),
+            "setup": ("Setup", "Configuracao e administracao"),
         },
     },
     "en": {
-        "main_title": "Luma Help Corner ✨",
-        "main_desc": "Pick a category and I will show the main commands in a neat way.",
+        "main_title": "Luma Help Center",
+        "main_desc": "Pick a category to view commands, examples, and the fastest way to use each module.",
         "usage_name": "How to use",
-        "usage_value": "1. Pick a category\n2. Check the commands\n3. Try them in your server",
-        "footer": "Luma • gentle and ready to help",
-        "placeholder": "Pick a category",
-        "options": [
-            ("general", "General", "Basic commands"),
-            ("admin", "Administration", "Administrative commands"),
-            ("mail", "Mail", "Private messaging"),
-            ("mod", "Moderation", "Member management"),
-            ("setup", "Setup", "Server configuration"),
-        ],
-        "cards": {
-            "general": ("General Commands", "Use these commands to chat with me and explore Luma."),
-            "admin": ("Administration Commands", "Tools to keep everything organized and smooth."),
-            "mail": ("Mail Commands", "Private messaging flow with your staff team."),
-            "mod": ("Moderation Commands", "Safety and order controls for your community."),
-            "setup": ("Setup Commands", "Main settings to shape the server your way."),
+        "usage_value": "1. Pick a category\n2. Check the main commands\n3. Copy the example and adapt it to your server",
+        "summary_name": "Coverage",
+        "summary_value": "Moderation, AI, support, economy, levels, and setup in one place.",
+        "commands_name": "Main commands",
+        "example_name": "Quick example",
+        "tip_name": "Luma tip",
+        "tip_value": "If a module is disabled in the dashboard, some commands may answer that the feature is turned off for this server.",
+        "footer": "Luma • interactive help",
+        "placeholder": "Select a category",
+        "back_label": "Overview",
+        "options": {
+            "general": ("General", "Everyday utility commands"),
+            "ai": ("AI", "Ask Luma questions"),
+            "moderation": ("Moderation", "Staff actions and protection"),
+            "support": ("Support", "Modmail, tickets, and roles"),
+            "economy": ("Economy", "Balance, shop, and rankings"),
+            "levels": ("Levels", "XP, rank, and leaderboard"),
+            "setup": ("Setup", "Configuration and admin flow"),
         },
     },
     "es": {
-        "main_title": "Rinconcito de Ayuda de Luma ✨",
-        "main_desc": "Elige una categoria y te muestro los comandos principales, bien ordenados.",
+        "main_title": "Centro de Ayuda de Luma",
+        "main_desc": "Elige una categoria para ver comandos, ejemplos y la forma mas rapida de usar cada modulo.",
         "usage_name": "Como usar",
-        "usage_value": "1. Elige una categoria\n2. Revisa los comandos\n3. Usalos en tu servidor",
-        "footer": "Luma • tierna y lista para ayudarte",
+        "usage_value": "1. Elige una categoria\n2. Revisa los comandos principales\n3. Copia el ejemplo y adaptalo a tu servidor",
+        "summary_name": "Cobertura",
+        "summary_value": "Moderacion, IA, soporte, economia, niveles y configuracion en un solo panel.",
+        "commands_name": "Comandos principales",
+        "example_name": "Ejemplo rapido",
+        "tip_name": "Consejo de Luma",
+        "tip_value": "Si un modulo esta desactivado en el panel, algunos comandos pueden avisar que la funcion no esta habilitada para ese servidor.",
+        "footer": "Luma • ayuda interactiva",
         "placeholder": "Selecciona una categoria",
-        "options": [
-            ("general", "General", "Comandos basicos"),
-            ("admin", "Administracion", "Comandos administrativos"),
-            ("mail", "Mail", "Mensajeria privada"),
-            ("mod", "Moderacion", "Gestion de miembros"),
-            ("setup", "Setup", "Configuracion del servidor"),
-        ],
-        "cards": {
-            "general": ("Comandos Generales", "Usa estos comandos para hablar conmigo y explorar Luma."),
-            "admin": ("Comandos de Administracion", "Herramientas para mantener todo ordenado."),
-            "mail": ("Comandos de Mail", "Flujo de mensajes privados con el equipo."),
-            "mod": ("Comandos de Moderacion", "Controles de seguridad y orden para la comunidad."),
-            "setup": ("Comandos de Setup", "Ajustes principales para personalizar tu servidor."),
+        "back_label": "Vista general",
+        "options": {
+            "general": ("General", "Comandos utiles del dia a dia"),
+            "ai": ("IA", "Preguntas y respuestas con Luma"),
+            "moderation": ("Moderacion", "Acciones del staff y proteccion"),
+            "support": ("Soporte", "Modmail, tickets y roles"),
+            "economy": ("Economia", "Saldo, tienda y ranking"),
+            "levels": ("Niveles", "XP, rango y clasificacion"),
+            "setup": ("Setup", "Configuracion y administracion"),
         },
     },
 }
 
 
-COMMAND_BLOCKS = {
+HELP_CATEGORIES = {
     "pt": {
-        "geral": ["/help", "/ask", "/criador", "/stats"],
-        "admin": ["/admin sync", "/admin health", "/admin lockdown", "/admin unlock", "/admin slowmode", "/admin embed"],
-        "mail": ["/mail enviar", "/mail responder", "/mail fechar"],
-        "mod": ["/mod ban", "/mod unban", "/mod kick", "/mod timeout", "/mod warn"],
-        "setup": ["/setup", "/language"],
+        "general": {
+            "emoji": "✨",
+            "title": "Comandos gerais",
+            "description": "Comandos leves para consultar informacoes rapidas, noticias e utilidades basicas.",
+            "commands": [
+                ("/help", "abre este painel interativo"),
+                ("/ping", "mostra a latencia atual do bot"),
+                ("/about", "resume status e identidade da Luma"),
+                ("/news", "consulta as ultimas noticias publicadas"),
+                ("/dice", "rola dados no formato XdY"),
+                ("/stats", "mostra estatisticas gerais do servidor"),
+            ],
+            "example": "/news 3",
+        },
+        "ai": {
+            "emoji": "🧠",
+            "title": "Assistente de IA",
+            "description": "Use a Luma para responder perguntas, resumir contexto e sugerir texto para a staff.",
+            "commands": [
+                ("/ask", "faz uma pergunta direta para a Luma"),
+            ],
+            "example": "/ask escreva um anuncio claro e profissional para abrir as inscricoes do evento",
+        },
+        "moderation": {
+            "emoji": "🛡️",
+            "title": "Moderacao",
+            "description": "Ferramentas centrais da staff para aplicar acoes e manter a comunidade segura.",
+            "commands": [
+                ("/mod ban", "bane um membro com motivo"),
+                ("/mod unban", "remove um ban pelo ID do usuario"),
+                ("/mod kick", "expulsa um membro"),
+                ("/mod timeout", "aplica timeout com duracao"),
+                ("/mod warn", "registra advertencia e aciona escalonamento"),
+            ],
+            "example": "/mod warn @usuario motivo: spam em canais errados",
+        },
+        "support": {
+            "emoji": "📨",
+            "title": "Suporte e cargos",
+            "description": "Fluxos para atendimento, tickets e distribuicao controlada de cargos.",
+            "commands": [
+                ("/mail enviar", "abre contato com a equipe via modmail"),
+                ("/mail responder", "responde o usuario no canal de modmail"),
+                ("/mail fechar", "encerra o atendimento atual"),
+                ("/ticket painel", "publica um painel para abrir tickets"),
+                ("/ticket fechar", "fecha um ticket ativo"),
+                ("/rolepanel criar", "cria painel de autoatribuicao de cargos"),
+            ],
+            "example": "/ticket painel #suporte titulo: Suporte Luma mensagem: Clique para abrir atendimento",
+        },
+        "economy": {
+            "emoji": "💸",
+            "title": "Economia",
+            "description": "Saldo, recompensas, loja, inventario e ranking da temporada em um mesmo sistema.",
+            "commands": [
+                ("/balance", "consulta seu saldo de Lumicoins"),
+                ("/daily", "resgata a recompensa diaria"),
+                ("/shop", "lista itens disponiveis na loja"),
+                ("/buy", "compra itens da loja"),
+                ("/inventory", "mostra o inventario de itens"),
+                ("/useitem", "consome um item do inventario"),
+                ("/transfer", "envia Lumicoins para outro usuario"),
+                ("/leaderboard", "abre o ranking de Lumicoins"),
+                ("/season", "mostra a temporada atual"),
+                ("/profile", "abre o perfil publico do usuario"),
+            ],
+            "example": "/daily",
+        },
+        "levels": {
+            "emoji": "📈",
+            "title": "Levels",
+            "description": "Acompanhe XP, rank pessoal e a classificacao do servidor.",
+            "commands": [
+                ("/levels rank", "mostra seu nivel atual"),
+                ("/levels leaderboard", "mostra o top XP do servidor"),
+            ],
+            "example": "/levels rank",
+        },
+        "setup": {
+            "emoji": "⚙️",
+            "title": "Setup e administracao",
+            "description": "Configura idioma, embeds e partes operacionais usadas pela equipe.",
+            "commands": [
+                ("/setup", "abre a configuracao guiada do servidor"),
+                ("/language", "altera o idioma da guild"),
+                ("/admin embed", "monta um embed interativo"),
+                ("/admin health", "checa recursos operacionais"),
+                ("/admin sync", "sincroniza comandos"),
+            ],
+            "example": "/setup",
+        },
     },
     "en": {
-        "general": ["/help", "/ask", "/criador", "/stats"],
-        "admin": ["/admin sync", "/admin health", "/admin lockdown", "/admin unlock", "/admin slowmode", "/admin embed"],
-        "mail": ["/mail send", "/mail reply", "/mail close"],
-        "mod": ["/mod ban", "/mod unban", "/mod kick", "/mod timeout", "/mod warn"],
-        "setup": ["/setup", "/language"],
+        "general": {
+            "emoji": "✨",
+            "title": "General commands",
+            "description": "Light commands for quick info, news, and everyday utilities.",
+            "commands": [
+                ("/help", "opens this interactive panel"),
+                ("/ping", "shows the current bot latency"),
+                ("/about", "summarizes Luma status and identity"),
+                ("/news", "checks the latest published news"),
+                ("/dice", "rolls dice using XdY format"),
+                ("/stats", "shows server-wide bot stats"),
+            ],
+            "example": "/news 3",
+        },
+        "ai": {
+            "emoji": "🧠",
+            "title": "AI assistant",
+            "description": "Ask Luma questions, get summaries, and draft cleaner staff messages.",
+            "commands": [
+                ("/ask", "sends a direct question to Luma"),
+            ],
+            "example": "/ask write a professional announcement for event signups",
+        },
+        "moderation": {
+            "emoji": "🛡️",
+            "title": "Moderation",
+            "description": "Core staff actions for safety, escalation, and member management.",
+            "commands": [
+                ("/mod ban", "bans a member with a reason"),
+                ("/mod unban", "removes a ban by user ID"),
+                ("/mod kick", "kicks a member"),
+                ("/mod timeout", "applies a timed timeout"),
+                ("/mod warn", "stores a warning and escalation data"),
+            ],
+            "example": "/mod warn @user reason: repeated spam",
+        },
+        "support": {
+            "emoji": "📨",
+            "title": "Support and roles",
+            "description": "Flows for modmail, tickets, and controlled role self-assignment.",
+            "commands": [
+                ("/mail enviar", "starts modmail contact with staff"),
+                ("/mail responder", "replies from the current modmail channel"),
+                ("/mail fechar", "closes the current support flow"),
+                ("/ticket painel", "publishes a ticket panel"),
+                ("/ticket fechar", "closes an open ticket"),
+                ("/rolepanel criar", "creates a self-role panel"),
+            ],
+            "example": "/ticket painel #support title: Luma Support message: Click to open a ticket",
+        },
+        "economy": {
+            "emoji": "💸",
+            "title": "Economy",
+            "description": "Balance, rewards, shop, inventory, and seasonal ranking in one system.",
+            "commands": [
+                ("/balance", "checks your Lumicoins balance"),
+                ("/daily", "claims the daily reward"),
+                ("/shop", "lists available shop items"),
+                ("/buy", "buys an item from the shop"),
+                ("/inventory", "shows your item inventory"),
+                ("/useitem", "uses an owned item"),
+                ("/transfer", "sends Lumicoins to another user"),
+                ("/leaderboard", "opens the Lumicoins ranking"),
+                ("/season", "shows the current season"),
+                ("/profile", "opens the user's public profile"),
+            ],
+            "example": "/daily",
+        },
+        "levels": {
+            "emoji": "📈",
+            "title": "Levels",
+            "description": "Track XP, your personal rank, and the server leaderboard.",
+            "commands": [
+                ("/levels rank", "shows your current level"),
+                ("/levels leaderboard", "shows the server XP ranking"),
+            ],
+            "example": "/levels rank",
+        },
+        "setup": {
+            "emoji": "⚙️",
+            "title": "Setup and admin",
+            "description": "Configure language, embeds, and operational admin tools.",
+            "commands": [
+                ("/setup", "opens guided server setup"),
+                ("/language", "changes the guild language"),
+                ("/admin embed", "opens the interactive embed builder"),
+                ("/admin health", "checks operational resources"),
+                ("/admin sync", "syncs slash commands"),
+            ],
+            "example": "/setup",
+        },
     },
     "es": {
-        "general": ["/help", "/ask", "/criador", "/stats"],
-        "admin": ["/admin sync", "/admin health", "/admin lockdown", "/admin unlock", "/admin slowmode", "/admin embed"],
-        "mail": ["/mail enviar", "/mail responder", "/mail cerrar"],
-        "mod": ["/mod ban", "/mod unban", "/mod kick", "/mod timeout", "/mod warn"],
-        "setup": ["/setup", "/language"],
+        "general": {
+            "emoji": "✨",
+            "title": "Comandos generales",
+            "description": "Comandos ligeros para informacion rapida, noticias y utilidades diarias.",
+            "commands": [
+                ("/help", "abre este panel interactivo"),
+                ("/ping", "muestra la latencia actual del bot"),
+                ("/about", "resume el estado e identidad de Luma"),
+                ("/news", "consulta las ultimas noticias publicadas"),
+                ("/dice", "lanza dados con formato XdY"),
+                ("/stats", "muestra estadisticas del servidor"),
+            ],
+            "example": "/news 3",
+        },
+        "ai": {
+            "emoji": "🧠",
+            "title": "Asistente de IA",
+            "description": "Usa a Luma para preguntas, resumenes y mensajes de staff mejor escritos.",
+            "commands": [
+                ("/ask", "envia una pregunta directa a Luma"),
+            ],
+            "example": "/ask escribe un anuncio profesional para abrir inscripciones",
+        },
+        "moderation": {
+            "emoji": "🛡️",
+            "title": "Moderacion",
+            "description": "Acciones centrales del staff para seguridad, escalado y gestion de miembros.",
+            "commands": [
+                ("/mod ban", "banea a un miembro con motivo"),
+                ("/mod unban", "quita un baneo por ID"),
+                ("/mod kick", "expulsa a un miembro"),
+                ("/mod timeout", "aplica timeout con duracion"),
+                ("/mod warn", "registra advertencia y escalado"),
+            ],
+            "example": "/mod warn @usuario motivo: spam repetido",
+        },
+        "support": {
+            "emoji": "📨",
+            "title": "Soporte y roles",
+            "description": "Flujos para modmail, tickets y autoasignacion controlada de roles.",
+            "commands": [
+                ("/mail enviar", "inicia contacto con el staff"),
+                ("/mail responder", "responde desde el canal de modmail"),
+                ("/mail fechar", "cierra el flujo de soporte actual"),
+                ("/ticket painel", "publica un panel de tickets"),
+                ("/ticket fechar", "cierra un ticket abierto"),
+                ("/rolepanel criar", "crea un panel de roles"),
+            ],
+            "example": "/ticket painel #soporte titulo: Soporte Luma mensaje: Haz clic para abrir un ticket",
+        },
+        "economy": {
+            "emoji": "💸",
+            "title": "Economia",
+            "description": "Saldo, recompensas, tienda, inventario y ranking de temporada en un solo sistema.",
+            "commands": [
+                ("/balance", "consulta tu saldo de Lumicoins"),
+                ("/daily", "reclama la recompensa diaria"),
+                ("/shop", "lista los items de la tienda"),
+                ("/buy", "compra un item de la tienda"),
+                ("/inventory", "muestra tu inventario"),
+                ("/useitem", "usa un item del inventario"),
+                ("/transfer", "envia Lumicoins a otro usuario"),
+                ("/leaderboard", "abre el ranking de Lumicoins"),
+                ("/season", "muestra la temporada actual"),
+                ("/profile", "abre el perfil publico del usuario"),
+            ],
+            "example": "/daily",
+        },
+        "levels": {
+            "emoji": "📈",
+            "title": "Niveles",
+            "description": "Sigue XP, rango personal y clasificacion del servidor.",
+            "commands": [
+                ("/levels rank", "muestra tu nivel actual"),
+                ("/levels leaderboard", "muestra el top XP del servidor"),
+            ],
+            "example": "/levels rank",
+        },
+        "setup": {
+            "emoji": "⚙️",
+            "title": "Setup y administracion",
+            "description": "Configura idioma, embeds y herramientas operativas de administracion.",
+            "commands": [
+                ("/setup", "abre la configuracion guiada"),
+                ("/language", "cambia el idioma de la guild"),
+                ("/admin embed", "abre el creador interactivo de embeds"),
+                ("/admin health", "revisa recursos operativos"),
+                ("/admin sync", "sincroniza comandos slash"),
+            ],
+            "example": "/setup",
+        },
     },
 }
+
+
+def _help_color() -> discord.Color:
+    return discord.Color.from_rgb(132, 177, 255)
+
+
+class HelpCategorySelect(discord.ui.Select):
+    def __init__(self, cog: "Help", lang: str):
+        self.cog = cog
+        self.lang = lang
+        ui = HELP_UI[lang]
+        options = []
+        for key, category in HELP_CATEGORIES[lang].items():
+            label, description = ui["options"][key]
+            options.append(
+                discord.SelectOption(
+                    label=label,
+                    description=description,
+                    value=key,
+                    emoji=category["emoji"],
+                )
+            )
+
+        super().__init__(placeholder=ui["placeholder"], options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        if not isinstance(view, HelpView):
+            return
+        await view.show_category(interaction, self.values[0])
+
+
+class HelpView(discord.ui.View):
+    def __init__(self, cog: "Help", interaction: discord.Interaction, lang: str):
+        super().__init__(timeout=240)
+        self.cog = cog
+        self.source_interaction = interaction
+        self.lang = lang
+        self.current_key: str | None = None
+        self.select = HelpCategorySelect(cog, lang)
+        self.add_item(self.select)
+        self.back_button.label = HELP_UI[lang]["back_label"]
+        self.back_button.disabled = True
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.source_interaction.user.id:
+            await interaction.response.send_message("Esse painel de ajuda pertence a outra pessoa.", ephemeral=True)
+            return False
+        return True
+
+    async def show_home(self, interaction: discord.Interaction):
+        self.current_key = None
+        self.back_button.disabled = True
+        await interaction.response.edit_message(embed=self.cog.build_home_embed(self.lang, interaction), view=self)
+
+    async def show_category(self, interaction: discord.Interaction, key: str):
+        self.current_key = key
+        self.back_button.disabled = False
+        await interaction.response.edit_message(embed=self.cog.build_category_embed(self.lang, key, interaction), view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+    @discord.ui.button(label="Overview", style=discord.ButtonStyle.secondary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_home(interaction)
 
 
 class Help(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="help", description="Show the help menu and command categories")
-    async def help(self, interaction: discord.Interaction):
-        lang = await self.bot.i18n.language_for_interaction(self.bot, interaction)
+    def build_home_embed(self, lang: str, interaction: discord.Interaction) -> discord.Embed:
         ui = HELP_UI[lang]
-
-        class HelpSelection(discord.ui.Select):
-            def __init__(self):
-                options = [
-                    discord.SelectOption(label=label, description=description, value=value)
-                    for value, label, description in ui["options"]
-                ]
-                super().__init__(placeholder=ui["placeholder"], options=options)
-
-            async def callback(self, select_interaction: discord.Interaction):
-                key = self.values[0]
-                title, description = ui["cards"][key]
-                embed = discord.Embed(title=title, description=description, color=discord.Color.blurple())
-                embed.add_field(name="Commands", value="\n".join(COMMAND_BLOCKS[lang][key]), inline=False)
-                embed.set_footer(text=ui["footer"])
-                await select_interaction.response.send_message(embed=embed, ephemeral=True)
-
-        class HelpView(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=180)
-                self.add_item(HelpSelection())
-
-        main_embed = discord.Embed(
+        embed = discord.Embed(
             title=ui["main_title"],
             description=ui["main_desc"],
-            color=discord.Color.blurple(),
+            color=_help_color(),
         )
-        main_embed.add_field(name=ui["usage_name"], value=ui["usage_value"], inline=False)
-        main_embed.set_footer(text=ui["footer"])
+        embed.add_field(name=ui["usage_name"], value=ui["usage_value"], inline=False)
+        embed.add_field(name=ui["summary_name"], value=ui["summary_value"], inline=False)
 
-        await interaction.response.send_message(embed=main_embed, view=HelpView(), ephemeral=True)
+        for key, category in HELP_CATEGORIES[lang].items():
+            label = ui["options"][key][0]
+            embed.add_field(
+                name=f"{category['emoji']} {label}",
+                value=category["description"],
+                inline=False,
+            )
+
+        bot_user = getattr(interaction.client, "user", None)
+        if bot_user is not None:
+            embed.set_thumbnail(url=bot_user.display_avatar.url)
+        embed.set_footer(text=ui["footer"])
+        return embed
+
+    def build_category_embed(self, lang: str, key: str, interaction: discord.Interaction) -> discord.Embed:
+        ui = HELP_UI[lang]
+        category = HELP_CATEGORIES[lang][key]
+        embed = discord.Embed(
+            title=f"{category['emoji']} {category['title']}",
+            description=category["description"],
+            color=_help_color(),
+        )
+        embed.add_field(
+            name=ui["commands_name"],
+            value="\n".join(f"`{name}` - {description}" for name, description in category["commands"]),
+            inline=False,
+        )
+        embed.add_field(name=ui["example_name"], value=f"`{category['example']}`", inline=False)
+        embed.add_field(name=ui["tip_name"], value=ui["tip_value"], inline=False)
+
+        bot_user = getattr(interaction.client, "user", None)
+        if bot_user is not None:
+            embed.set_thumbnail(url=bot_user.display_avatar.url)
+        embed.set_footer(text=ui["footer"])
+        return embed
+
+    @app_commands.command(name="help", description="Mostra um painel interativo com categorias e exemplos de comandos")
+    async def help(self, interaction: discord.Interaction):
+        lang = await self.bot.i18n.language_for_interaction(self.bot, interaction)
+        view = HelpView(self, interaction, lang)
+        await interaction.response.send_message(
+            embed=self.build_home_embed(lang, interaction),
+            view=view,
+            ephemeral=True,
+        )
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Help(bot))
