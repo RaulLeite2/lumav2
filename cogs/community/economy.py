@@ -862,36 +862,36 @@ class Economy(commands.Cog):
         db = self._db()
         season_key, starts_at, ends_at = await self._ensure_current_season()
 
-                if interaction.guild is None:
-                        rows = await db.fetch(
-                                """
-                                SELECT user_id, COALESCE(SUM(delta), 0) AS season_score
-                                FROM economy_transactions
-                                WHERE created_at >= $1
-                                    AND created_at < $2
-                                GROUP BY user_id
-                                ORDER BY season_score DESC
-                                LIMIT 10
-                                """,
-                                starts_at.replace(tzinfo=None),
-                                ends_at.replace(tzinfo=None),
-                        )
-                else:
-                        rows = await db.fetch(
-                                """
-                                SELECT user_id, COALESCE(SUM(delta), 0) AS season_score
-                                FROM economy_transactions
-                                WHERE created_at >= $1
-                                    AND created_at < $2
-                                    AND guild_id = $3
-                                GROUP BY user_id
-                                ORDER BY season_score DESC
-                                LIMIT 10
-                                """,
-                                starts_at.replace(tzinfo=None),
-                                ends_at.replace(tzinfo=None),
-                                interaction.guild.id,
-                        )
+        if interaction.guild is None:
+            rows = await db.fetch(
+                """
+                SELECT user_id, COALESCE(SUM(delta), 0) AS season_score
+                FROM economy_transactions
+                WHERE created_at >= $1
+                    AND created_at < $2
+                GROUP BY user_id
+                ORDER BY season_score DESC
+                LIMIT 10
+                """,
+                starts_at.replace(tzinfo=None),
+                ends_at.replace(tzinfo=None),
+            )
+        else:
+            rows = await db.fetch(
+                """
+                SELECT user_id, COALESCE(SUM(delta), 0) AS season_score
+                FROM economy_transactions
+                WHERE created_at >= $1
+                    AND created_at < $2
+                    AND guild_id = $3
+                GROUP BY user_id
+                ORDER BY season_score DESC
+                LIMIT 10
+                """,
+                starts_at.replace(tzinfo=None),
+                ends_at.replace(tzinfo=None),
+                interaction.guild.id,
+            )
 
         embed = discord.Embed(
             title=tr(lang, "Temporada de Economia", "Economy Season", "Temporada de Economia"),
