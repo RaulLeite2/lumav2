@@ -2,19 +2,36 @@
 # eu tenho que para com isso kk
 import discord
 from discord import app_commands
-from discord.ext import commands
-import random
 import json
+import random
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from discord.ext import commands, tasks
 
 from scripts.db import Database
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
     return {"pt": pt, "en": en, "es": es}.get(lang, pt)
 
+
+@dataclass
+class VoiceDropSession:
+    guild_id: int
+    user_id: int
+    channel_id: int
+    progress_seconds: float = 0.0
+    last_tick: datetime | None = None
+    reminder_sent: bool = False
+
 class Economy(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.voice_drop_sessions: dict[tuple[int, int], VoiceDropSession] = {}
+        self.voice_drop_daily_totals: dict[tuple[int, int, str], int] = {}
+        self.voice_drop_tick.start()
+
+    def cog_unload(self) -> None:
+        self.voice_drop_tick.cancel()
 
     def _db(self) -> Database:
         return Database(self.bot.pool)
@@ -175,6 +192,338 @@ class Economy(commands.Cog):
     
     async def _lang(self, interaction: discord.Interaction) -> str:
         return await self.bot.i18n.language_for_interaction(self.bot, interaction)
+
+    async def _guild_lang(self, guild: discord.Guild | None) -> str:
+        if guild is None:
+            return "pt"
+        return await self.bot.i18n.get_guild_language(self.bot.pool, guild.id)
+
+    async def _fetch_voice_drop_configs(self) -> dict[int, dict[str, int | bool | str]]:
+        db = self._db()
+        rows = await db.fetch(
+            """
+            SELECT
+                guild_id,
+                language_code,
+                voice_drops_enabled,
+                voice_drops_channel_id,
+                voice_drops_interval_minutes,
+                voice_drops_reminder_minutes,
+                voice_drops_min_members,
+                voice_drops_min_amount,
+                voice_drops_max_amount,
+                voice_drops_daily_cap,
+                voice_drops_party_bonus_percent
+            FROM guilds
+            WHERE voice_drops_enabled = TRUE
+            """
+        )
+
+        payload: dict[int, dict[str, int | bool | str]] = {}
+        for row in rows:
+            guild_id = int(row["guild_id"])
+            interval_minutes = max(5, int(row["voice_drops_interval_minutes"] or 15))
+            reward_min = max(1, int(row["voice_drops_min_amount"] or 20))
+            reward_max = max(reward_min, int(row["voice_drops_max_amount"] or 45))
+            payload[guild_id] = {
+                "enabled": bool(row["voice_drops_enabled"]),
+                "language_code": str(row["language_code"] or "pt"),
+                "announce_channel_id": int(row["voice_drops_channel_id"]) if row["voice_drops_channel_id"] is not None else 0,
+                "interval_minutes": interval_minutes,
+                "reminder_minutes": min(max(0, int(row["voice_drops_reminder_minutes"] or 15)), interval_minutes),
+                "min_members": max(2, int(row["voice_drops_min_members"] or 2)),
+                "reward_min": reward_min,
+                "reward_max": reward_max,
+                "daily_cap": max(reward_max, int(row["voice_drops_daily_cap"] or 500)),
+                "party_bonus_percent": max(0, int(row["voice_drops_party_bonus_percent"] or 10)),
+            }
+        return payload
+
+    def _voice_member_is_active(self, member: discord.Member, channel: discord.abc.GuildChannel | None) -> bool:
+        voice = member.voice
+        if voice is None or channel is None or voice.channel != channel:
+            return False
+        if member.bot:
+            return False
+        if getattr(voice, "afk", False):
+            return False
+        if member.guild.afk_channel is not None and voice.channel == member.guild.afk_channel:
+            return False
+        if voice.self_deaf or voice.deaf:
+            return False
+        return True
+
+    def _active_members_in_channel(self, channel: discord.VoiceChannel | discord.StageChannel) -> list[discord.Member]:
+        return [member for member in channel.members if self._voice_member_is_active(member, channel)]
+
+    async def _voice_drop_daily_total(self, guild_id: int, user_id: int) -> int:
+        day_key = datetime.now(timezone.utc).date().isoformat()
+        cache_key = (guild_id, user_id, day_key)
+        if cache_key in self.voice_drop_daily_totals:
+            return self.voice_drop_daily_totals[cache_key]
+
+        db = self._db()
+        total = await db.fetchval(
+            """
+            SELECT total_amount
+            FROM user_voice_drops_daily
+            WHERE guild_id = $1 AND user_id = $2 AND day_key = CURRENT_DATE
+            """,
+            guild_id,
+            user_id,
+        )
+        safe_total = int(total or 0)
+        self.voice_drop_daily_totals[cache_key] = safe_total
+        return safe_total
+
+    async def _send_voice_drop_announcement(
+        self,
+        guild: discord.Guild,
+        settings: dict[str, int | bool | str],
+        content: str,
+    ) -> None:
+        channel_id = int(settings.get("announce_channel_id") or 0)
+        if channel_id <= 0:
+            return
+
+        target = guild.get_channel(channel_id)
+        if target is None:
+            try:
+                fetched = await guild.fetch_channel(channel_id)
+            except Exception:
+                return
+            target = fetched
+
+        if not hasattr(target, "send"):
+            return
+
+        try:
+            await target.send(content)
+        except Exception:
+            return
+
+    async def _apply_voice_drop(
+        self,
+        member: discord.Member,
+        channel: discord.VoiceChannel | discord.StageChannel,
+        settings: dict[str, int | bool | str],
+        participant_count: int,
+    ) -> bool:
+        guild_id = member.guild.id
+        user_id = member.id
+        daily_total = await self._voice_drop_daily_total(guild_id, user_id)
+        daily_cap = int(settings.get("daily_cap") or 500)
+        if daily_total >= daily_cap:
+            return False
+
+        base_reward = random.randint(int(settings.get("reward_min") or 20), int(settings.get("reward_max") or 45))
+        party_bonus_percent = int(settings.get("party_bonus_percent") or 0) if participant_count >= 3 else 0
+        total_reward = base_reward + int(round(base_reward * (party_bonus_percent / 100)))
+        total_reward = min(total_reward, max(daily_cap - daily_total, 0))
+        if total_reward <= 0:
+            return False
+
+        async with self.bot.pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    INSERT INTO economy (user_id, balance)
+                    VALUES ($1, 0)
+                    ON CONFLICT (user_id) DO NOTHING
+                    """,
+                    user_id,
+                )
+                new_balance = await connection.fetchval(
+                    """
+                    UPDATE economy
+                    SET balance = balance + $1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = $2
+                    RETURNING balance
+                    """,
+                    total_reward,
+                    user_id,
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO economy_transactions (user_id, guild_id, delta, balance_after, tx_type, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                    """,
+                    user_id,
+                    guild_id,
+                    int(total_reward),
+                    int(new_balance or 0),
+                    "voice_drop",
+                    json.dumps(
+                        {
+                            "channel_id": channel.id,
+                            "participants": participant_count,
+                            "party_bonus_percent": party_bonus_percent,
+                            "interval_minutes": int(settings.get("interval_minutes") or 15),
+                        }
+                    ),
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO user_voice_drops_daily (
+                        guild_id,
+                        user_id,
+                        day_key,
+                        total_amount,
+                        total_intervals,
+                        last_drop_at,
+                        updated_at
+                    )
+                    VALUES ($1, $2, CURRENT_DATE, $3, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (guild_id, user_id, day_key)
+                    DO UPDATE SET
+                        total_amount = user_voice_drops_daily.total_amount + EXCLUDED.total_amount,
+                        total_intervals = user_voice_drops_daily.total_intervals + 1,
+                        last_drop_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    guild_id,
+                    user_id,
+                    int(total_reward),
+                )
+
+        day_key = datetime.now(timezone.utc).date().isoformat()
+        cache_key = (guild_id, user_id, day_key)
+        self.voice_drop_daily_totals[cache_key] = daily_total + total_reward
+
+        lang = str(settings.get("language_code") or await self._guild_lang(member.guild))
+        bonus_text = ""
+        if party_bonus_percent > 0:
+            bonus_text = tr(
+                lang,
+                f" Bonus de call cheia: +{party_bonus_percent}%.",
+                f" Full-call bonus: +{party_bonus_percent}%.",
+                f" Bonus por llamada llena: +{party_bonus_percent}%.",
+            )
+        await self._send_voice_drop_announcement(
+            member.guild,
+            settings,
+            tr(
+                lang,
+                f"{member.mention} recebeu **{total_reward} Drops** por ficar em call em {channel.mention}.{bonus_text}",
+                f"{member.mention} received **{total_reward} Drops** for staying in voice in {channel.mention}.{bonus_text}",
+                f"{member.mention} recibio **{total_reward} Drops** por quedarse en llamada en {channel.mention}.{bonus_text}",
+            ),
+        )
+        return True
+
+    async def _process_voice_drop_sessions(self) -> None:
+        now = datetime.now(timezone.utc)
+        configs = await self._fetch_voice_drop_configs()
+        active_guild_ids = set(configs.keys())
+
+        for session_key, session in list(self.voice_drop_sessions.items()):
+            if session.guild_id not in active_guild_ids:
+                self.voice_drop_sessions.pop(session_key, None)
+
+        active_session_keys: set[tuple[int, int]] = set()
+
+        for guild in self.bot.guilds:
+            settings = configs.get(guild.id)
+            if not settings or not bool(settings.get("enabled")):
+                continue
+
+            interval_seconds = int(settings.get("interval_minutes") or 15) * 60
+            reminder_threshold = max(0, interval_seconds - (int(settings.get("reminder_minutes") or 0) * 60))
+            voice_channels = list(guild.voice_channels) + list(guild.stage_channels)
+
+            for channel in voice_channels:
+                active_members = self._active_members_in_channel(channel)
+                if len(active_members) < int(settings.get("min_members") or 2):
+                    for member in channel.members:
+                        key = (guild.id, member.id)
+                        if key in self.voice_drop_sessions:
+                            self.voice_drop_sessions[key].last_tick = now
+                    continue
+
+                for member in active_members:
+                    key = (guild.id, member.id)
+                    active_session_keys.add(key)
+                    session = self.voice_drop_sessions.get(key)
+                    if session is None or session.channel_id != channel.id:
+                        session = VoiceDropSession(guild_id=guild.id, user_id=member.id, channel_id=channel.id, last_tick=now)
+                        self.voice_drop_sessions[key] = session
+                        continue
+
+                    daily_total = await self._voice_drop_daily_total(guild.id, member.id)
+                    if daily_total >= int(settings.get("daily_cap") or 500):
+                        session.last_tick = now
+                        session.progress_seconds = 0.0
+                        session.reminder_sent = True
+                        continue
+
+                    elapsed = max(0.0, min((now - (session.last_tick or now)).total_seconds(), 120.0))
+                    session.last_tick = now
+                    session.progress_seconds += elapsed
+
+                    if not session.reminder_sent and session.progress_seconds >= reminder_threshold:
+                        reminder_minutes = int(settings.get("reminder_minutes") or 0)
+                        if reminder_minutes > 0:
+                            lang = str(settings.get("language_code") or await self._guild_lang(guild))
+                            await self._send_voice_drop_announcement(
+                                guild,
+                                settings,
+                                tr(
+                                    lang,
+                                    f"{member.mention} Drop em **{reminder_minutes} minutinhos** se voce continuar em {channel.mention}!",
+                                    f"{member.mention} Drop in **{reminder_minutes} minutes** if you stay in {channel.mention}!",
+                                    f"{member.mention} Drop en **{reminder_minutes} minutitos** si sigues en {channel.mention}!",
+                                ),
+                            )
+                        session.reminder_sent = True
+
+                    while session.progress_seconds >= interval_seconds:
+                        granted = await self._apply_voice_drop(member, channel, settings, len(active_members))
+                        session.progress_seconds -= interval_seconds
+                        session.reminder_sent = False
+                        if not granted:
+                            session.progress_seconds = 0.0
+                            break
+
+        for key, session in list(self.voice_drop_sessions.items()):
+            if key in active_session_keys:
+                continue
+
+            guild = self.bot.get_guild(session.guild_id)
+            member = guild.get_member(session.user_id) if guild is not None else None
+            current_channel_id = member.voice.channel.id if member and member.voice and member.voice.channel else None
+            if current_channel_id != session.channel_id:
+                self.voice_drop_sessions.pop(key, None)
+                continue
+
+            session.last_tick = now
+
+    @tasks.loop(minutes=1)
+    async def voice_drop_tick(self):
+        await self._process_voice_drop_sessions()
+
+    @voice_drop_tick.before_loop
+    async def before_voice_drop_tick(self):
+        await self.bot.wait_until_ready()
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ):
+        if member.bot:
+            return
+
+        key = (member.guild.id, member.id)
+        if after.channel is None or before.channel != after.channel:
+            self.voice_drop_sessions.pop(key, None)
+            return
+
+        session = self.voice_drop_sessions.get(key)
+        if session is not None:
+            session.last_tick = datetime.now(timezone.utc)
     
     @app_commands.command(name="balance", description="Mostra o saldo de Lumicoins do usuario")
     async def balance(self, interaction: discord.Interaction):

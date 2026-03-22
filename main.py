@@ -17,6 +17,7 @@ load_dotenv()
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.voice_states = True
 
 TOKEN = os.getenv("TOKEN")
 if TOKEN is None:
