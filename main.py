@@ -238,6 +238,11 @@ bot = MyBot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
+    try:
+        await bot.change_presence(activity=discord.Game(name="Luma!"))
+    except Exception as exc:
+        print(f"[BOT - Error] Falha ao atualizar presence: {exc}")
+
     if not bot._commands_synced:
         try:
             await bot.sync_command_tree()

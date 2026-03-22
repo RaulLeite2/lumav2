@@ -118,7 +118,19 @@ class Levels(commands.Cog):
             if base_xp <= 0:
                 return
 
-            gained_xp = max(1, int(round(base_xp * xp_multiplier)))
+                        boost_row = await self.database.fetchrow(
+                                """
+                                SELECT expires_at
+                                FROM user_item_effects
+                                WHERE user_id = $1
+                                    AND effect_key = 'xp_boost'
+                                    AND expires_at > CURRENT_TIMESTAMP
+                                """,
+                                message.author.id,
+                        )
+                        boost_multiplier = 1.5 if boost_row is not None else 1.0
+
+                        gained_xp = max(1, int(round(base_xp * xp_multiplier * boost_multiplier)))
 
             await self.database.fetchrow(
                 """

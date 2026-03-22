@@ -3,6 +3,7 @@ import itertools
 import re
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import scripts.db
@@ -14,6 +15,17 @@ def tr(lang: str, pt: str, en: str, es: str) -> str:
 
 class Events(commands.Cog):
     DEFAULT_SPAM_THRESHOLD = 6
+    DEFAULT_RAID_SETTINGS = {
+        "enabled": False,
+        "join_threshold": 7,
+        "window_seconds": 15,
+        "min_account_age_days": 7,
+        "auto_lock_minutes": 10,
+        "action": "kick",
+        "mode": "lockdown",
+        "recovery_cooldown_minutes": 10,
+        "notify_channel_id": None,
+    }
 
     def __init__(self, bot):
         self.bot = bot
@@ -24,6 +36,12 @@ class Events(commands.Cog):
         self.invite_pattern = re.compile(r"discord\.gg/\w+|discord(app)?\.com/invite/\w+", re.IGNORECASE)
         self.link_pattern = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
         self.emoji_pattern = re.compile(r"<a?:\w+:\d+>|[\U0001F600-\U0001F64F]|[\U0001F300-\U0001F5FF]|[\U0001F680-\U0001F6FF]|[\U0001F900-\U0001F9FF]|[\U0001FA70-\U0001FAFF]")
+        self.raid_joins_window: dict[int, list[datetime]] = {}
+        self.raid_lock_until: dict[int, datetime] = {}
+        self.raid_preventive_until: dict[int, datetime] = {}
+        self.raid_last_join_at: dict[int, datetime] = {}
+
+    raid = app_commands.Group(name="raid", description="Comandos de anti-raid")
 
     async def _guild_lang(self, guild: discord.Guild | None) -> str:
         if guild is None:
@@ -126,6 +144,200 @@ class Events(commands.Cog):
             )
         except Exception:
             return None
+
+    async def _get_raid_settings(self, guild_id: int) -> dict[str, object]:
+        defaults = dict(self.DEFAULT_RAID_SETTINGS)
+        try:
+            row = await self.database.fetchrow(
+                """
+                SELECT enabled, join_threshold, window_seconds, min_account_age_days, auto_lock_minutes, action, mode, recovery_cooldown_minutes, notify_channel_id
+                FROM guild_raid_settings
+                WHERE guild_id = $1
+                """,
+                guild_id,
+            )
+        except Exception:
+            try:
+                row = await self.database.fetchrow(
+                    """
+                    SELECT enabled, join_threshold, window_seconds, min_account_age_days, auto_lock_minutes, action, notify_channel_id
+                    FROM guild_raid_settings
+                    WHERE guild_id = $1
+                    """,
+                    guild_id,
+                )
+            except Exception:
+                return defaults
+
+        if row is None:
+            return defaults
+
+        payload = dict(row)
+        defaults.update({key: value for key, value in payload.items() if value is not None})
+        action = str(defaults.get("action") or "kick").lower()
+        defaults["action"] = action if action in {"kick", "ban"} else "kick"
+        mode = str(defaults.get("mode") or "lockdown").lower()
+        defaults["mode"] = mode if mode in {"preventive", "lockdown", "recovery"} else "lockdown"
+        return defaults
+
+    async def _save_raid_settings(self, guild_id: int, settings: dict[str, object]) -> None:
+        await self.database.execute(
+            """
+            INSERT INTO guild_raid_settings (
+                guild_id, enabled, join_threshold, window_seconds, min_account_age_days, auto_lock_minutes, action, mode, recovery_cooldown_minutes, notify_channel_id, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET
+                enabled = EXCLUDED.enabled,
+                join_threshold = EXCLUDED.join_threshold,
+                window_seconds = EXCLUDED.window_seconds,
+                min_account_age_days = EXCLUDED.min_account_age_days,
+                auto_lock_minutes = EXCLUDED.auto_lock_minutes,
+                action = EXCLUDED.action,
+                mode = EXCLUDED.mode,
+                recovery_cooldown_minutes = EXCLUDED.recovery_cooldown_minutes,
+                notify_channel_id = EXCLUDED.notify_channel_id,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            guild_id,
+            bool(settings.get("enabled")),
+            int(settings.get("join_threshold") or 7),
+            int(settings.get("window_seconds") or 15),
+            int(settings.get("min_account_age_days") or 7),
+            int(settings.get("auto_lock_minutes") or 10),
+            str(settings.get("action") or "kick"),
+            str(settings.get("mode") or "lockdown"),
+            int(settings.get("recovery_cooldown_minutes") or 10),
+            settings.get("notify_channel_id"),
+        )
+
+    async def _resolve_raid_notify_channel(self, guild: discord.Guild, settings: dict[str, object]) -> discord.TextChannel | None:
+        notify_id = settings.get("notify_channel_id")
+        if notify_id:
+            channel = guild.get_channel(int(notify_id))
+            if isinstance(channel, discord.TextChannel):
+                return channel
+
+        guild_settings = await self._get_guild_settings(guild.id)
+        return await self._get_log_channel(guild, guild_settings)
+
+    async def _notify_raid_alert(self, guild: discord.Guild, settings: dict[str, object], *, join_count: int, lock_until: datetime) -> None:
+        channel = await self._resolve_raid_notify_channel(guild, settings)
+        if channel is None:
+            return
+
+        lang = await self._guild_lang(guild)
+        embed = discord.Embed(
+            title=tr(lang, "Alerta de raid detectado", "Raid alert detected", "Alerta de raid detectado"),
+            description=tr(
+                lang,
+                "Um pico de entradas foi detectado. O modo de bloqueio temporario foi ativado.",
+                "A join spike was detected. Temporary lock mode has been activated.",
+                "Se detecto un pico de entradas. Se activo el modo de bloqueo temporal.",
+            ),
+            color=discord.Color.red(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name=tr(lang, "Entradas na janela", "Joins in window", "Entradas en la ventana"), value=str(join_count), inline=True)
+        embed.add_field(name=tr(lang, "Janela (s)", "Window (s)", "Ventana (s)"), value=str(int(settings.get("window_seconds") or 15)), inline=True)
+        embed.add_field(name=tr(lang, "Bloqueio ate", "Lock until", "Bloqueo hasta"), value=discord.utils.format_dt(lock_until, style="R"), inline=True)
+
+        try:
+            await channel.send(embed=embed)
+        except Exception:
+            return
+
+    async def _apply_raid_action(self, member: discord.Member, settings: dict[str, object]) -> bool:
+        action = str(settings.get("action") or "kick").lower()
+        reason = "Luma anti-raid temporary lock"
+
+        try:
+            if action == "ban":
+                await member.guild.ban(member, reason=reason, delete_message_days=0)
+            else:
+                await member.guild.kick(member, reason=reason)
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            return False
+
+    async def _check_raid_guard(self, member: discord.Member) -> bool:
+        settings = await self._get_raid_settings(member.guild.id)
+        if not bool(settings.get("enabled")):
+            return False
+
+        now = datetime.utcnow()
+        self.raid_last_join_at[member.guild.id] = now
+        window_seconds = max(5, int(settings.get("window_seconds") or 15))
+        threshold = max(3, int(settings.get("join_threshold") or 7))
+        min_age_days = max(0, int(settings.get("min_account_age_days") or 7))
+        auto_lock_minutes = max(1, int(settings.get("auto_lock_minutes") or 10))
+        recovery_minutes = max(1, int(settings.get("recovery_cooldown_minutes") or 10))
+        mode = str(settings.get("mode") or "lockdown").lower()
+
+        timestamps = [ts for ts in self.raid_joins_window.get(member.guild.id, []) if (now - ts).total_seconds() <= window_seconds]
+        timestamps.append(now)
+        self.raid_joins_window[member.guild.id] = timestamps
+
+        preventive_until = self.raid_preventive_until.get(member.guild.id)
+        if preventive_until is not None and now >= preventive_until:
+            self.raid_preventive_until.pop(member.guild.id, None)
+            preventive_until = None
+
+        lock_until = self.raid_lock_until.get(member.guild.id)
+        if lock_until is not None and now >= lock_until:
+            self.raid_lock_until.pop(member.guild.id, None)
+            lock_until = None
+
+        if mode == "recovery" and lock_until is not None:
+            last_join = self.raid_last_join_at.get(member.guild.id)
+            if last_join and (now - last_join).total_seconds() >= recovery_minutes * 60:
+                self.raid_lock_until.pop(member.guild.id, None)
+                lock_until = None
+
+        if lock_until is None and len(timestamps) >= threshold:
+            incident_lock_until = now + timedelta(minutes=auto_lock_minutes)
+            await self.database.execute(
+                """
+                INSERT INTO raid_incidents (guild_id, window_seconds, join_count, action, lock_until, notes)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                """,
+                member.guild.id,
+                window_seconds,
+                len(timestamps),
+                str(settings.get("action") or "kick"),
+                incident_lock_until,
+                f"mode={mode}",
+            )
+
+            if mode == "preventive":
+                self.raid_preventive_until[member.guild.id] = incident_lock_until
+                await self._notify_raid_alert(member.guild, settings, join_count=len(timestamps), lock_until=incident_lock_until)
+            else:
+                lock_until = incident_lock_until
+                self.raid_lock_until[member.guild.id] = lock_until
+                await self._notify_raid_alert(member.guild, settings, join_count=len(timestamps), lock_until=lock_until)
+
+        if lock_until is None:
+            return False
+
+        created_at = member.created_at
+        created_utc = created_at.replace(tzinfo=None) if created_at.tzinfo else created_at
+        account_age_days = max(0, int((now - created_utc).total_seconds() // 86400))
+
+        if account_age_days >= min_age_days:
+            return False
+
+        return await self._apply_raid_action(member, settings)
+
+    def _is_preventive_mode_active(self, guild_id: int) -> bool:
+        until = self.raid_preventive_until.get(guild_id)
+        if until is None:
+            return False
+        if datetime.utcnow() >= until:
+            self.raid_preventive_until.pop(guild_id, None)
+            return False
+        return True
 
     @staticmethod
     def _resolve_embed_color(raw_color: object, fallback: discord.Color) -> discord.Color:
@@ -357,12 +569,16 @@ class Events(commands.Cog):
         lang = await self._guild_lang(message.guild)
         now = datetime.utcnow()
         key = (message.guild.id, message.author.id)
+        preventive = self._is_preventive_mode_active(message.guild.id)
 
         timestamps = [ts for ts in self.spam_cooldown.get(key, []) if (now - ts).total_seconds() < 5]
         timestamps.append(now)
         self.spam_cooldown[key] = timestamps
 
-        if bool(settings.get("automod_invite_filter")) and self.invite_pattern.search(message.content):
+        invite_filter_on = bool(settings.get("automod_invite_filter")) or preventive
+        link_filter_on = bool(settings.get("automod_link_filter")) or preventive
+
+        if invite_filter_on and self.invite_pattern.search(message.content):
             return await self._handle_violation(
                 message,
                 settings,
@@ -370,7 +586,7 @@ class Events(commands.Cog):
                 warn_reason="Invite link detected",
             )
 
-        if bool(settings.get("automod_link_filter")) and self.link_pattern.search(message.content) and not self.invite_pattern.search(message.content):
+        if link_filter_on and self.link_pattern.search(message.content) and not self.invite_pattern.search(message.content):
             return await self._handle_violation(
                 message,
                 settings,
@@ -379,6 +595,8 @@ class Events(commands.Cog):
             )
 
         threshold = max(3, int(settings.get("automod_spam_threshold") or self.DEFAULT_SPAM_THRESHOLD))
+        if preventive:
+            threshold = max(3, threshold - 2)
         if len(timestamps) >= threshold:
             return await self._handle_violation(
                 message,
@@ -394,8 +612,9 @@ class Events(commands.Cog):
             return False
 
         lang = await self._guild_lang(message.guild)
+        preventive = self._is_preventive_mode_active(message.guild.id)
 
-        if bool(settings.get("automod_caps_filter")) and len(message.content) > 10:
+        if (bool(settings.get("automod_caps_filter")) or preventive) and len(message.content) > 10:
             caps_count = sum(1 for char in message.content if char.isupper())
             caps_ratio = caps_count / max(len(message.content), 1)
             if caps_ratio > self.max_caps_ratio:
@@ -441,9 +660,106 @@ class Events(commands.Cog):
         print("[DEBUG Events Cog] on_ready called")
         print(f"[EVENTS] Online: {self.bot.user}")
 
+    @raid.command(name="status", description="Mostra o status atual do anti-raid")
+    async def raid_status(self, interaction: discord.Interaction):
+        lang = await self._guild_lang(interaction.guild)
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                tr(lang, "Esse comando so funciona em servidor.", "This command only works in a server.", "Este comando solo funciona en servidor."),
+                ephemeral=True,
+            )
+            return
+
+        settings = await self._get_raid_settings(interaction.guild.id)
+        now = datetime.utcnow()
+        lock_until = self.raid_lock_until.get(interaction.guild.id)
+        active_lock = lock_until is not None and now < lock_until
+
+        embed = discord.Embed(
+            title=tr(lang, "Status do anti-raid", "Anti-raid status", "Estado del anti-raid"),
+            color=discord.Color.orange() if active_lock else discord.Color.green(),
+        )
+        embed.add_field(name=tr(lang, "Ativado", "Enabled", "Activado"), value=str(bool(settings.get("enabled"))), inline=True)
+        embed.add_field(name=tr(lang, "Threshold", "Threshold", "Umbral"), value=str(int(settings.get("join_threshold") or 7)), inline=True)
+        embed.add_field(name=tr(lang, "Janela", "Window", "Ventana"), value=f"{int(settings.get('window_seconds') or 15)}s", inline=True)
+        embed.add_field(name=tr(lang, "Idade minima", "Minimum age", "Edad minima"), value=f"{int(settings.get('min_account_age_days') or 7)}d", inline=True)
+        embed.add_field(name=tr(lang, "Lock", "Lock", "Bloqueo"), value=f"{int(settings.get('auto_lock_minutes') or 10)}m", inline=True)
+        embed.add_field(name=tr(lang, "Acao", "Action", "Accion"), value=str(settings.get("action") or "kick"), inline=True)
+        embed.add_field(name=tr(lang, "Modo", "Mode", "Modo"), value=str(settings.get("mode") or "lockdown"), inline=True)
+
+        if active_lock and lock_until is not None:
+            embed.add_field(name=tr(lang, "Modo raid ativo", "Raid mode active", "Modo raid activo"), value=discord.utils.format_dt(lock_until, style="R"), inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @raid.command(name="config", description="Configura o anti-raid inteligente")
+    @app_commands.choices(action=[
+        app_commands.Choice(name="kick", value="kick"),
+        app_commands.Choice(name="ban", value="ban"),
+    ])
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="preventive", value="preventive"),
+        app_commands.Choice(name="lockdown", value="lockdown"),
+        app_commands.Choice(name="recovery", value="recovery"),
+    ])
+    async def raid_config(
+        self,
+        interaction: discord.Interaction,
+        enabled: bool,
+        join_threshold: app_commands.Range[int, 3, 50] = 7,
+        window_seconds: app_commands.Range[int, 5, 120] = 15,
+        min_account_age_days: app_commands.Range[int, 0, 60] = 7,
+        auto_lock_minutes: app_commands.Range[int, 1, 120] = 10,
+        action: app_commands.Choice[str] | None = None,
+        mode: app_commands.Choice[str] | None = None,
+        recovery_cooldown_minutes: app_commands.Range[int, 1, 120] = 10,
+        notify_channel: discord.TextChannel | None = None,
+    ):
+        lang = await self._guild_lang(interaction.guild)
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                tr(lang, "Esse comando so funciona em servidor.", "This command only works in a server.", "Este comando solo funciona en servidor."),
+                ephemeral=True,
+            )
+            return
+
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                tr(lang, "Voce precisa de Manage Server para configurar o anti-raid.", "You need Manage Server to configure anti-raid.", "Necesitas Manage Server para configurar anti-raid."),
+                ephemeral=True,
+            )
+            return
+
+        payload = {
+            "enabled": bool(enabled),
+            "join_threshold": int(join_threshold),
+            "window_seconds": int(window_seconds),
+            "min_account_age_days": int(min_account_age_days),
+            "auto_lock_minutes": int(auto_lock_minutes),
+            "action": str(action.value).lower() if action else "kick",
+            "mode": str(mode.value).lower() if mode else "lockdown",
+            "recovery_cooldown_minutes": int(recovery_cooldown_minutes),
+            "notify_channel_id": notify_channel.id if notify_channel else None,
+        }
+        await self._save_raid_settings(interaction.guild.id, payload)
+
+        await interaction.response.send_message(
+            tr(
+                lang,
+                f"Anti-raid atualizado. enabled={payload['enabled']} mode={payload['mode']} threshold={payload['join_threshold']} window={payload['window_seconds']}s age={payload['min_account_age_days']}d lock={payload['auto_lock_minutes']}m recovery={payload['recovery_cooldown_minutes']}m action={payload['action']}",
+                f"Anti-raid updated. enabled={payload['enabled']} mode={payload['mode']} threshold={payload['join_threshold']} window={payload['window_seconds']}s age={payload['min_account_age_days']}d lock={payload['auto_lock_minutes']}m recovery={payload['recovery_cooldown_minutes']}m action={payload['action']}",
+                f"Anti-raid actualizado. enabled={payload['enabled']} mode={payload['mode']} threshold={payload['join_threshold']} window={payload['window_seconds']}s age={payload['min_account_age_days']}d lock={payload['auto_lock_minutes']}m recovery={payload['recovery_cooldown_minutes']}m action={payload['action']}",
+            ),
+            ephemeral=True,
+        )
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if not await self.bot.is_cog_enabled(member.guild.id, "events"):
+            return
+
+        blocked = await self._check_raid_guard(member)
+        if blocked:
             return
 
         settings = await self._get_guild_settings(member.guild.id)

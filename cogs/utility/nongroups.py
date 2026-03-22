@@ -1,5 +1,10 @@
 import time
 import random
+import json
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -15,6 +20,30 @@ class NonGroups(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.started_at = time.monotonic()
+        self.news_cursor_by_guild: dict[int, int] = {}
+
+    async def _fetch_public_news(self, after_id: int, limit: int) -> dict:
+        base_url = os.getenv(
+            "LUMA_NEWS_API_URL",
+            "http://127.0.0.1:8000/api/public/news/latest",
+        )
+
+        params = urllib.parse.urlencode(
+            {
+                "after_id": max(0, int(after_id)),
+                "limit": max(1, min(int(limit), 10)),
+            }
+        )
+        url = f"{base_url}?{params}"
+
+        def _request() -> dict:
+            req = urllib.request.Request(url, headers={"User-Agent": "LumaBot/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as response:
+                body = response.read().decode("utf-8")
+            data = json.loads(body)
+            return data if isinstance(data, dict) else {}
+
+        return await self.bot.loop.run_in_executor(None, _request)
 
     async def _lang(self, interaction: discord.Interaction) -> str:
         return await self.bot.i18n.language_for_interaction(self.bot, interaction)
@@ -86,6 +115,84 @@ class NonGroups(commands.Cog):
         embed.set_footer(text=tr(lang, "Luma • comandos gerais", "Luma • general commands", "Luma • comandos generales"))
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="news", description="Consulta as ultimas noticias do blog da Luma")
+    async def news(self, interaction: discord.Interaction, limit: app_commands.Range[int, 1, 10] = 3):
+        lang = await self._lang(interaction)
+        if not await self._ensure_cog_enabled(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        guild_key = interaction.guild.id if interaction.guild else interaction.user.id
+        last_seen = self.news_cursor_by_guild.get(guild_key, 0)
+
+        try:
+            payload = await self._fetch_public_news(after_id=last_seen, limit=int(limit))
+        except urllib.error.URLError:
+            await interaction.followup.send(
+                tr(
+                    lang,
+                    "Nao consegui acessar o feed de noticias agora. Tente novamente em instantes.",
+                    "I could not access the news feed right now. Please try again shortly.",
+                    "No pude acceder al feed de noticias ahora. Intenta de nuevo en breve.",
+                ),
+                ephemeral=True,
+            )
+            return
+        except Exception:
+            await interaction.followup.send(
+                tr(
+                    lang,
+                    "Erro ao ler noticias do site.",
+                    "Error while reading site news.",
+                    "Error al leer noticias del sitio.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        posts = payload.get("posts") if isinstance(payload.get("posts"), list) else []
+        newest_id = int(payload.get("newest_id") or 0)
+        has_new = bool(payload.get("has_new"))
+
+        if newest_id > last_seen:
+            self.news_cursor_by_guild[guild_key] = newest_id
+
+        if not posts:
+            await interaction.followup.send(
+                tr(
+                    lang,
+                    "Ainda nao existem noticias publicadas no blog.",
+                    "There are no published news posts yet.",
+                    "Aun no hay noticias publicadas en el blog.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        top = posts[0]
+        embed = discord.Embed(
+            title=tr(lang, "Noticias da Luma", "Luma News", "Noticias de Luma"),
+            description=tr(
+                lang,
+                "Tem post novo desde a ultima consulta!" if has_new else "Sem novidades desde a ultima consulta.",
+                "There is a new post since your last check!" if has_new else "No new posts since your last check.",
+                "Hay una publicacion nueva desde tu ultima consulta!" if has_new else "Sin novedades desde tu ultima consulta.",
+            ),
+            color=discord.Color.gold() if has_new else discord.Color.blurple(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name=tr(lang, "Ultimo post", "Latest post", "Ultimo post"), value=str(top.get("title") or "-"), inline=False)
+
+        lines = []
+        for post in posts[: int(limit)]:
+            title = str(post.get("title") or "Sem titulo")
+            pid = int(post.get("id") or 0)
+            lines.append(f"#{pid} - {title}")
+        embed.add_field(name=tr(lang, "Feed", "Feed", "Feed"), value="\n".join(lines), inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="dice", description="Rola um dado no formato XdY (ex: 2d6)")
     async def dice(self, interaction: discord.Interaction, roll: str):
