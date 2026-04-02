@@ -16,10 +16,16 @@ class Engagement(commands.Cog):
     REP_COOLDOWN_HOURS = 12
     DAILY_MISSION_HOURS = 24
 
-    MISSION_POOL = [
+    DAILY_MISSION_POOL = [
         {"key": "messages", "target": 20, "reward": 120},
         {"key": "messages", "target": 35, "reward": 220},
         {"key": "messages", "target": 50, "reward": 340},
+    ]
+
+    WEEKLY_MISSION_POOL = [
+        {"key": "messages", "target": 160, "reward": 900},
+        {"key": "messages", "target": 280, "reward": 1450},
+        {"key": "messages", "target": 420, "reward": 2100},
     ]
 
     ACHIEVEMENT_TEXTS = {
@@ -42,6 +48,16 @@ class Engagement(commands.Cog):
             "pt": "Grinder diario (7 missoes)",
             "en": "Daily grinder (7 missions)",
             "es": "Grinder diario (7 misiones)",
+        },
+        "first_weekly_claim": {
+            "pt": "Primeira missao semanal concluida",
+            "en": "First weekly mission completed",
+            "es": "Primera mision semanal completada",
+        },
+        "weekly_grinder_4": {
+            "pt": "Grinder semanal (4 missoes)",
+            "en": "Weekly grinder (4 missions)",
+            "es": "Grinder semanal (4 misiones)",
         },
     }
 
@@ -126,6 +142,47 @@ class Engagement(commands.Cog):
             user_id,
         )
 
+    async def _total_weekly_claims(self, user_id: int) -> int:
+        db = self._db()
+        total = await db.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM user_weekly_missions
+            WHERE user_id = $1 AND claimed_at IS NOT NULL
+            """,
+            user_id,
+        )
+        return int(total or 0)
+
+    async def _active_weekly_mission_row(self, user_id: int):
+        db = self._db()
+        return await db.fetchrow(
+            """
+            SELECT week_key, mission_key, target_count, progress_count, reward_coins, assigned_at, claimed_at
+            FROM user_weekly_missions
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+
+    @staticmethod
+    def _current_week_key(now: datetime | None = None) -> str:
+        current = now or datetime.now(timezone.utc)
+        iso = current.isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+
+    @staticmethod
+    def _next_week_reset(now: datetime | None = None) -> datetime:
+        current = now or datetime.now(timezone.utc)
+        week_start = current - timedelta(
+            days=current.weekday(),
+            hours=current.hour,
+            minutes=current.minute,
+            seconds=current.second,
+            microseconds=current.microsecond,
+        )
+        return week_start + timedelta(days=7)
+
     @staticmethod
     def _mission_title(lang: str, key: str, target: int) -> str:
         if key == "messages":
@@ -136,6 +193,17 @@ class Engagement(commands.Cog):
                 f"Envia {target} mensajes en el servidor",
             )
         return tr(lang, "Missao desconhecida", "Unknown mission", "Mision desconocida")
+
+    @staticmethod
+    def _weekly_mission_title(lang: str, key: str, target: int) -> str:
+        if key == "messages":
+            return tr(
+                lang,
+                f"Envie {target} mensagens durante a semana",
+                f"Send {target} messages during the week",
+                f"Envia {target} mensajes durante la semana",
+            )
+        return tr(lang, "Missao semanal desconhecida", "Unknown weekly mission", "Mision semanal desconocida")
 
     @staticmethod
     def _seconds_to_hm(seconds: int) -> str:
@@ -159,6 +227,7 @@ class Engagement(commands.Cog):
             return
 
         db = self._db()
+        week_key = self._current_week_key()
         try:
             await db.execute(
                 """
@@ -171,6 +240,21 @@ class Engagement(commands.Cog):
                   AND progress_count < target_count
                 """,
                 message.author.id,
+            )
+
+            await db.execute(
+                """
+                UPDATE user_weekly_missions
+                SET progress_count = LEAST(progress_count + 1, target_count),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $1
+                  AND week_key = $2
+                  AND mission_key = 'messages'
+                  AND claimed_at IS NULL
+                  AND progress_count < target_count
+                """,
+                message.author.id,
+                week_key,
             )
         except Exception as exc:
             print(f"[ENGAGEMENT] Failed to update mission progress for {message.author.id}: {exc}")
@@ -315,7 +399,7 @@ class Engagement(commands.Cog):
             should_generate = (now - assigned_utc) >= timedelta(hours=self.DAILY_MISSION_HOURS)
 
         if should_generate:
-            mission = random.choice(self.MISSION_POOL)
+            mission = random.choice(self.DAILY_MISSION_POOL)
             mission_row = await db.fetchrow(
                 """
                 INSERT INTO user_daily_missions (user_id, mission_key, target_count, progress_count, reward_coins, assigned_at, claimed_at, updated_at)
@@ -467,6 +551,193 @@ class Engagement(commands.Cog):
             f"Missao resgatada com sucesso! +{reward} Lumicoins. Saldo atual: **{int(new_balance or 0)}**.",
             f"Mission claimed successfully! +{reward} Lumicoins. Current balance: **{int(new_balance or 0)}**.",
             f"Mision reclamada con exito! +{reward} Lumicoins. Saldo actual: **{int(new_balance or 0)}**.",
+        )
+        if unlocked_labels:
+            response += "\n\n" + tr(lang, "Conquista desbloqueada: ", "Achievement unlocked: ", "Logro desbloqueado: ") + ", ".join(unlocked_labels)
+
+        await interaction.response.send_message(response, ephemeral=True)
+
+    @app_commands.command(name="weeklymission", description="Show or generate your weekly mission")
+    async def weeklymission(self, interaction: discord.Interaction):
+        lang = await self._lang(interaction)
+        if interaction.guild is None:
+            await self._send_ephemeral(
+                interaction,
+                tr(lang, "Esse comando so funciona em servidor.", "This command only works in a server.", "Este comando solo funciona en servidor."),
+            )
+            return
+
+        if not await self._ensure_cog_enabled(interaction):
+            return
+
+        db = self._db()
+        now = datetime.now(timezone.utc)
+        current_week_key = self._current_week_key(now)
+        mission_row = await self._active_weekly_mission_row(interaction.user.id)
+
+        should_generate = mission_row is None or str(mission_row["week_key"]) != current_week_key
+
+        if should_generate:
+            mission = random.choice(self.WEEKLY_MISSION_POOL)
+            mission_row = await db.fetchrow(
+                """
+                INSERT INTO user_weekly_missions (user_id, week_key, mission_key, target_count, progress_count, reward_coins, assigned_at, claimed_at, updated_at)
+                VALUES ($1, $2, $3, $4, 0, $5, CURRENT_TIMESTAMP, NULL, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id)
+                DO UPDATE SET
+                    week_key = EXCLUDED.week_key,
+                    mission_key = EXCLUDED.mission_key,
+                    target_count = EXCLUDED.target_count,
+                    progress_count = 0,
+                    reward_coins = EXCLUDED.reward_coins,
+                    assigned_at = CURRENT_TIMESTAMP,
+                    claimed_at = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING week_key, mission_key, target_count, progress_count, reward_coins, assigned_at, claimed_at
+                """,
+                interaction.user.id,
+                current_week_key,
+                mission["key"],
+                mission["target"],
+                mission["reward"],
+            )
+
+        key = str(mission_row["mission_key"])
+        target = int(mission_row["target_count"])
+        progress = int(mission_row["progress_count"])
+        reward = int(mission_row["reward_coins"])
+        claimed = mission_row["claimed_at"] is not None
+
+        title = tr(lang, "Sua missao semanal", "Your weekly mission", "Tu mision semanal")
+        description = self._weekly_mission_title(lang, key, target)
+        status = tr(lang, "Concluida (resgatada)" if claimed else "Em andamento", "Completed (claimed)" if claimed else "In progress", "Completada (reclamada)" if claimed else "En progreso")
+
+        embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
+        embed.add_field(name=tr(lang, "Semana", "Week", "Semana"), value=current_week_key, inline=True)
+        embed.add_field(name=tr(lang, "Progresso", "Progress", "Progreso"), value=f"{progress}/{target}", inline=True)
+        embed.add_field(name=tr(lang, "Recompensa", "Reward", "Recompensa"), value=f"{reward} Lumicoins", inline=True)
+        embed.add_field(name=tr(lang, "Status", "Status", "Estado"), value=status, inline=False)
+        embed.set_footer(text=tr(lang, "Use /weeklymissionclaim para resgatar ao concluir.", "Use /weeklymissionclaim to claim when complete.", "Usa /weeklymissionclaim para reclamar al completar."))
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="weeklymissionclaim", description="Claim your completed weekly mission reward")
+    async def weeklymissionclaim(self, interaction: discord.Interaction):
+        lang = await self._lang(interaction)
+        if interaction.guild is None:
+            await self._send_ephemeral(
+                interaction,
+                tr(lang, "Esse comando so funciona em servidor.", "This command only works in a server.", "Este comando solo funciona en servidor."),
+            )
+            return
+
+        if not await self._ensure_cog_enabled(interaction):
+            return
+
+        db = self._db()
+        now = datetime.now(timezone.utc)
+        current_week_key = self._current_week_key(now)
+
+        mission_row = await self._active_weekly_mission_row(interaction.user.id)
+        if mission_row is None or str(mission_row["week_key"]) != current_week_key:
+            await self._send_ephemeral(
+                interaction,
+                tr(
+                    lang,
+                    "Voce ainda nao tem missao semanal ativa. Use /weeklymission.",
+                    "You do not have an active weekly mission yet. Use /weeklymission.",
+                    "Aun no tienes una mision semanal activa. Usa /weeklymission.",
+                ),
+            )
+            return
+
+        if mission_row["claimed_at"] is not None:
+            remaining = int((self._next_week_reset(now) - now).total_seconds())
+            await self._send_ephemeral(
+                interaction,
+                tr(
+                    lang,
+                    f"Voce ja resgatou essa missao semanal. Nova semana em {self._seconds_to_hm(remaining)}.",
+                    f"You already claimed this weekly mission. New week in {self._seconds_to_hm(remaining)}.",
+                    f"Ya reclamaste esta mision semanal. Nueva semana en {self._seconds_to_hm(remaining)}.",
+                ),
+            )
+            return
+
+        target = int(mission_row["target_count"])
+        progress = int(mission_row["progress_count"])
+        reward = int(mission_row["reward_coins"])
+
+        if progress < target:
+            await self._send_ephemeral(
+                interaction,
+                tr(
+                    lang,
+                    f"Missao semanal ainda nao concluida: {progress}/{target}.",
+                    f"Weekly mission not complete yet: {progress}/{target}.",
+                    f"Mision semanal aun no completada: {progress}/{target}.",
+                ),
+            )
+            return
+
+        async with self.bot.pool.acquire() as connection:
+            async with connection.transaction():
+                claimed = await connection.fetchval(
+                    """
+                    UPDATE user_weekly_missions
+                    SET claimed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = $1
+                      AND week_key = $2
+                      AND claimed_at IS NULL
+                      AND progress_count >= target_count
+                    RETURNING user_id
+                    """,
+                    interaction.user.id,
+                    current_week_key,
+                )
+
+                if claimed is None:
+                    await self._send_ephemeral(
+                        interaction,
+                        tr(lang, "Nao foi possivel resgatar agora. Tente novamente.", "Could not claim now. Try again.", "No se pudo reclamar ahora. Intenta otra vez."),
+                    )
+                    return
+
+                await connection.execute(
+                    """
+                    INSERT INTO economy (user_id, balance)
+                    VALUES ($1, 0)
+                    ON CONFLICT (user_id) DO NOTHING
+                    """,
+                    interaction.user.id,
+                )
+
+                new_balance = await connection.fetchval(
+                    """
+                    UPDATE economy
+                    SET balance = balance + $1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = $2
+                    RETURNING balance
+                    """,
+                    reward,
+                    interaction.user.id,
+                )
+
+        unlocked_labels: list[str] = []
+        if await self._unlock_achievement(interaction.user.id, "first_weekly_claim"):
+            unlocked_labels.append(self.ACHIEVEMENT_TEXTS["first_weekly_claim"][lang])
+
+        total_claims = await self._total_weekly_claims(interaction.user.id)
+        if total_claims >= 4 and await self._unlock_achievement(interaction.user.id, "weekly_grinder_4"):
+            unlocked_labels.append(self.ACHIEVEMENT_TEXTS["weekly_grinder_4"][lang])
+
+        response = tr(
+            lang,
+            f"Missao semanal resgatada com sucesso! +{reward} Lumicoins. Saldo atual: **{int(new_balance or 0)}**.",
+            f"Weekly mission claimed successfully! +{reward} Lumicoins. Current balance: **{int(new_balance or 0)}**.",
+            f"Mision semanal reclamada con exito! +{reward} Lumicoins. Saldo actual: **{int(new_balance or 0)}**.",
         )
         if unlocked_labels:
             response += "\n\n" + tr(lang, "Conquista desbloqueada: ", "Achievement unlocked: ", "Logro desbloqueado: ") + ", ".join(unlocked_labels)
