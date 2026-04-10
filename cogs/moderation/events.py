@@ -93,6 +93,7 @@ class Events(commands.Cog):
             "welcome_title": "Bem-vindo(a), {member}!",
             "welcome_description": "Aproveite sua estadia em **{guild}**.",
             "welcome_color": "#57cc99",
+            "auto_role_id": None,
             "leave_enabled": False,
             "leave_channel_id": None,
             "leave_title": "Ate logo, {member}.",
@@ -132,6 +133,7 @@ class Events(commands.Cog):
                     welcome_title,
                     welcome_description,
                     welcome_color,
+                    auto_role_id,
                     leave_enabled,
                     leave_channel_id,
                     leave_title,
@@ -396,6 +398,39 @@ class Events(commands.Cog):
 
         try:
             await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException):
+            return
+
+    async def _assign_entry_auto_role(self, member: discord.Member, settings: dict[str, object]) -> None:
+        role_id = settings.get("auto_role_id")
+        if role_id is None:
+            return
+
+        try:
+            target_role_id = int(role_id)
+        except (TypeError, ValueError):
+            return
+
+        role = member.guild.get_role(target_role_id)
+        if role is None:
+            return
+
+        me = member.guild.me
+        if me is None:
+            return
+
+        perms = member.guild.me.guild_permissions
+        if not perms.manage_roles:
+            return
+
+        if role >= me.top_role:
+            return
+
+        if role in member.roles:
+            return
+
+        try:
+            await member.add_roles(role, reason="Luma join auto-role")
         except (discord.Forbidden, discord.HTTPException):
             return
 
@@ -763,6 +798,7 @@ class Events(commands.Cog):
             return
 
         settings = await self._get_guild_settings(member.guild.id)
+        await self._assign_entry_auto_role(member, settings)
         await self._send_entry_exit_embed(member, settings, is_join=True)
         lang = await self._guild_lang(member.guild)
         await self._log_event(
