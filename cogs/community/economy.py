@@ -1,14 +1,16 @@
-# FINALMENTE ESSA PORCARIA VAI TER ECONOMIA!!!!!!!!!! AYRTON AYRTON AYRRRRRRRTOOOOOOON SENNA DO BRASIL!!!
-# eu tenho que para com isso kk
 import discord
 from discord import app_commands
 import json
 import random
+import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from discord.ext import commands, tasks
 
 from scripts.db import Database
+
+logger = logging.getLogger(__name__)
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
     return {"pt": pt, "en": en, "es": es}.get(lang, pt)
@@ -28,6 +30,8 @@ class Economy(commands.Cog):
         self.bot = bot
         self.voice_drop_sessions: dict[tuple[int, int], VoiceDropSession] = {}
         self.voice_drop_daily_totals: dict[tuple[int, int, str], int] = {}
+        self._cache_lock = asyncio.Lock()  # Thread-safe lock para cache
+        self._last_cache_cleanup = datetime.now(timezone.utc)  # Para limpeza periódica
         self.voice_drop_tick.start()
 
     def cog_unload(self) -> None:
@@ -177,7 +181,8 @@ class Economy(commands.Cog):
             try:
                 member = await guild.fetch_member(user_id)
                 return member.display_name
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not fetch member {user_id} from guild {guild.id}: {e}")
                 pass
 
         user = self.bot.get_user(user_id)
@@ -187,7 +192,8 @@ class Economy(commands.Cog):
         try:
             user = await self.bot.fetch_user(user_id)
             return user.name
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not fetch user {user_id}: {e}")
             return f"User ID {user_id}"
     
     async def _lang(self, interaction: discord.Interaction) -> str:
@@ -259,21 +265,29 @@ class Economy(commands.Cog):
     async def _voice_drop_daily_total(self, guild_id: int, user_id: int) -> int:
         day_key = datetime.now(timezone.utc).date().isoformat()
         cache_key = (guild_id, user_id, day_key)
-        if cache_key in self.voice_drop_daily_totals:
-            return self.voice_drop_daily_totals[cache_key]
+        
+        async with self._cache_lock:
+            if cache_key in self.voice_drop_daily_totals:
+                return self.voice_drop_daily_totals[cache_key]
 
         db = self._db()
-        total = await db.fetchval(
-            """
-            SELECT total_amount
-            FROM user_voice_drops_daily
-            WHERE guild_id = $1 AND user_id = $2 AND day_key = CURRENT_DATE
-            """,
-            guild_id,
-            user_id,
-        )
+        try:
+            total = await db.fetchval(
+                """
+                SELECT total_amount
+                FROM user_voice_drops_daily
+                WHERE guild_id = $1 AND user_id = $2 AND day_key = CURRENT_DATE
+                """,
+                guild_id,
+                user_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to fetch voice drop daily total for {user_id}: {e}")
+            total = 0
+        
         safe_total = int(total or 0)
-        self.voice_drop_daily_totals[cache_key] = safe_total
+        async with self._cache_lock:
+            self.voice_drop_daily_totals[cache_key] = safe_total
         return safe_total
 
     async def _send_voice_drop_announcement(
@@ -290,7 +304,8 @@ class Economy(commands.Cog):
         if target is None:
             try:
                 fetched = await guild.fetch_channel(channel_id)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to fetch announcement channel {channel_id}: {e}")
                 return
             target = fetched
 
@@ -299,8 +314,8 @@ class Economy(commands.Cog):
 
         try:
             await target.send(content)
-        except Exception:
-            return
+        except Exception as e:
+            logger.warning(f"Failed to send voice drop announcement in {guild.id}: {e}")
 
     async def _apply_voice_drop(
         self,
@@ -389,7 +404,8 @@ class Economy(commands.Cog):
 
         day_key = datetime.now(timezone.utc).date().isoformat()
         cache_key = (guild_id, user_id, day_key)
-        self.voice_drop_daily_totals[cache_key] = daily_total + total_reward
+async with self._cache_lock:
+                        self.voice_drop_daily_totals[cache_key] = daily_total + total_reward
 
         lang = str(settings.get("language_code") or await self._guild_lang(member.guild))
         bonus_text = ""
@@ -417,9 +433,10 @@ class Economy(commands.Cog):
         configs = await self._fetch_voice_drop_configs()
         active_guild_ids = set(configs.keys())
 
-        for session_key, session in list(self.voice_drop_sessions.items()):
-            if session.guild_id not in active_guild_ids:
-                self.voice_drop_sessions.pop(session_key, None)
+        async with self._cache_lock:
+            for session_key, session in list(self.voice_drop_sessions.items()):
+                if session.guild_id not in active_guild_ids:
+                    self.voice_drop_sessions.pop(session_key, None)
 
         active_session_keys: set[tuple[int, int]] = set()
 
@@ -444,11 +461,12 @@ class Economy(commands.Cog):
                 for member in active_members:
                     key = (guild.id, member.id)
                     active_session_keys.add(key)
-                    session = self.voice_drop_sessions.get(key)
-                    if session is None or session.channel_id != channel.id:
-                        session = VoiceDropSession(guild_id=guild.id, user_id=member.id, channel_id=channel.id, last_tick=now)
-                        self.voice_drop_sessions[key] = session
-                        continue
+                    async with self._cache_lock:
+                        session = self.voice_drop_sessions.get(key)
+                        if session is None or session.channel_id != channel.id:
+                            session = VoiceDropSession(guild_id=guild.id, user_id=member.id, channel_id=channel.id, last_tick=now)
+                            self.voice_drop_sessions[key] = session
+                            continue
 
                     daily_total = await self._voice_drop_daily_total(guild.id, member.id)
                     if daily_total >= int(settings.get("daily_cap") or 500):
@@ -485,22 +503,42 @@ class Economy(commands.Cog):
                             session.progress_seconds = 0.0
                             break
 
-        for key, session in list(self.voice_drop_sessions.items()):
-            if key in active_session_keys:
-                continue
+        async with self._cache_lock:
+            for key, session in list(self.voice_drop_sessions.items()):
+                if key in active_session_keys:
+                    continue
 
-            guild = self.bot.get_guild(session.guild_id)
-            member = guild.get_member(session.user_id) if guild is not None else None
-            current_channel_id = member.voice.channel.id if member and member.voice and member.voice.channel else None
-            if current_channel_id != session.channel_id:
-                self.voice_drop_sessions.pop(key, None)
-                continue
+                guild = self.bot.get_guild(session.guild_id)
+                member = guild.get_member(session.user_id) if guild is not None else None
+                current_channel_id = member.voice.channel.id if member and member.voice and member.voice.channel else None
+                if current_channel_id != session.channel_id:
+                    self.voice_drop_sessions.pop(key, None)
+                    continue
 
-            session.last_tick = now
+                session.last_tick = now
 
     @tasks.loop(minutes=1)
     async def voice_drop_tick(self):
-        await self._process_voice_drop_sessions()
+        try:
+            await self._process_voice_drop_sessions()
+            # Limpeza periódica de cache (a cada 30 minutos)
+            now = datetime.now(timezone.utc)
+            if (now - self._last_cache_cleanup).total_seconds() > 1800:  # 30 minutos
+                await self._cleanup_cache()
+                self._last_cache_cleanup = now
+        except Exception as e:
+            logger.error(f"Error in voice_drop_tick: {e}", exc_info=True)
+
+    async def _cleanup_cache(self) -> None:
+        """Remove old entries from cache to prevent memory leak"""
+        async with self._cache_lock:
+            today = datetime.now(timezone.utc).date().isoformat()
+            # Remove entries from previous days
+            keys_to_remove = [k for k in self.voice_drop_daily_totals.keys() if k[2] != today]
+            for key in keys_to_remove:
+                self.voice_drop_daily_totals.pop(key, None)
+            if keys_to_remove:
+                logger.debug(f"Cleaned up {len(keys_to_remove)} old cache entries")
 
     @voice_drop_tick.before_loop
     async def before_voice_drop_tick(self):
@@ -525,7 +563,7 @@ class Economy(commands.Cog):
         if session is not None:
             session.last_tick = datetime.now(timezone.utc)
     
-    @app_commands.command(name="balance", description="Mostra o saldo de Lumicoins do usuario")
+    @app_commands.command(name="saldo", description="Mostra o saldo de Lumicoins do usuario")
     async def balance(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         dbalance = await self._fetch_balance(interaction.user.id)
@@ -541,7 +579,7 @@ class Economy(commands.Cog):
     
     # Sugestão aleatória para o futuro:
     # Colocar no Front-End a Possibilidade de resgatar a recompensa diária, semanal e mensal, cada uma com uma chance diferente de raridade e valor diferente de recompensa, e um cooldown para cada uma delas (24h para diária, 7 dias para semanal e 30 dias para mensal)
-    @app_commands.command(name="daily", description="Resgata sua recompensa diária de Lumicoins")
+    @app_commands.command(name="recompensa_diaria", description="Resgata sua recompensa diária de Lumicoins")
     async def daily(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         db = self._db()
@@ -623,7 +661,7 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="shop", description="Mostra os itens disponiveis na loja de economia")
+    @app_commands.command(name="loja", description="Mostra os itens disponiveis na loja de economia")
     async def shop(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         db = self._db()
@@ -761,7 +799,7 @@ class Economy(commands.Cog):
             )
         )
 
-    @app_commands.command(name="inventory", description="Mostra seu inventario de itens da loja")
+    @app_commands.command(name="inventario", description="Mostra seu inventario de itens da loja")
     async def inventory(self, interaction: discord.Interaction, member: discord.Member | None = None):
         lang = await self._lang(interaction)
         db = self._db()
@@ -802,7 +840,7 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="useitem", description="Usa um item do seu inventario")
+    @app_commands.command(name="consumir", description="Usa um item do seu inventario")
     async def useitem(self, interaction: discord.Interaction, item_key: str):
         lang = await self._lang(interaction)
         await self._ensure_account(interaction.user.id)
@@ -971,7 +1009,7 @@ class Economy(commands.Cog):
                 ephemeral=True,
             )
 
-    @app_commands.command(name="badges", description="Mostra suas badges de perfil")
+    @app_commands.command(name="insignias", description="Mostra suas badges de perfil")
     async def badges(self, interaction: discord.Interaction, member: discord.Member | None = None):
         lang = await self._lang(interaction)
         db = self._db()
@@ -1205,7 +1243,7 @@ class Economy(commands.Cog):
             ephemeral=True,
         )
 
-    @app_commands.command(name="season", description="Mostra a temporada de economia atual e ranking mensal")
+    @app_commands.command(name="temporada", description="Mostra a temporada de economia atual e ranking mensal")
     async def season(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         db = self._db()
@@ -1273,7 +1311,7 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="profile", description="Mostra um perfil publico do usuario")
+    @app_commands.command(name="perfil", description="Mostra um perfil publico do usuario")
     async def profile(self, interaction: discord.Interaction, member: discord.Member | None = None):
         lang = await self._lang(interaction)
         db = self._db()
@@ -1333,7 +1371,7 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="leaderboard", description="Mostra a leaderboard de Lumicoins do servidor ou globalmente.")
+    @app_commands.command(name="ranking", description="Mostra o ranking de Lumicoins do servidor ou globalmente.")
     async def leaderboard(self, interaction: discord.Interaction, scope: str = "server"):
         lang = await self._lang(interaction)
         db = self._db()
@@ -1349,6 +1387,9 @@ class Economy(commands.Cog):
                 ephemeral=True,
             )
             return
+        
+        # Nova alias para comando antigo (backwards compatibility)
+        # Se alguém usar /leaderboard, redireciona para /ranking
 
         if scope == "server":
             rows = await db.fetch(
@@ -1359,18 +1400,19 @@ class Economy(commands.Cog):
                 LIMIT 100
                 """,
             )
+            # Otimização: Batch load todos os membros do servidor
+            if interaction.guild:
+                try:
+                    await interaction.guild.chunk(cache=True)
+                except Exception as e:
+                    logger.debug(f"Failed to chunk guild {interaction.guild.id}: {e}")
+            
             server_rows = []
             for row in rows:
                 if interaction.guild is None:
                     break
 
                 member = interaction.guild.get_member(row["user_id"])
-                if member is None:
-                    try:
-                        member = await interaction.guild.fetch_member(row["user_id"])
-                    except Exception:
-                        member = None
-
                 if member is not None:
                     server_rows.append(row)
                 if len(server_rows) >= 10:

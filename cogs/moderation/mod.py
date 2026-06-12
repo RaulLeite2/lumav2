@@ -1,10 +1,13 @@
 import os
+import logging
 from datetime import timedelta
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+logger = logging.getLogger(__name__)
 
 from modules.admin.services import AuditLogger
 from modules.ai.services import GroqClient
@@ -35,7 +38,8 @@ class ModerationLogger:
                     """,
                     guild_id,
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to fetch full guild settings: {e}, trying fallback")
                 # Backward-compatible fallback while older schemas are still around.
                 result = await database.fetchrow("SELECT log_channel_id FROM guilds WHERE guild_id = $1", guild_id)
 
@@ -97,7 +101,8 @@ class ModerationLogger:
         try:
             await log_channel.send(embed=embed)
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to send moderation log in guild {guild.id}: {e}")
             return False
 
 
@@ -295,8 +300,8 @@ class Moderation(commands.Cog):
                 elif action in {"mute", "timeout"}:
                     await user.timeout(discord.utils.utcnow() + timedelta(hours=1), reason=f"Warn escalation reached ({warning_count})")
                     await ModerationLogger.log_action(self.bot, interaction.guild, "timeout", interaction.user, user, reason=reason, duration="1h")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to escalate warn to action for user {user.id} in guild {interaction.guild.id}: {e}")
 
         await self.stats_service.increment_metric(interaction.guild.id, "warns_applied")
         await self.audit_logger.log(
@@ -366,8 +371,12 @@ class Moderation(commands.Cog):
             suggested = parsed.get("suggested_action", parsed.get("sugestao_punicao", "N/A"))
             justification = parsed.get("justification", parsed.get("justificativa", "No justification"))
             risk = parsed.get("risk", parsed.get("risco_geral", "N/A"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to parse AI analysis response: {e}")
+            aggression = "N/A"
+            suggested = "N/A"
+            justification = "Could not parse analysis"
+            risk = "N/A"
 
         embed = discord.Embed(
             title=tr(lang, "Analise de IA para Moderacao", "AI Moderation Analysis", "Analisis de IA para Moderacion"),

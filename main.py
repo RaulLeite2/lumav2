@@ -209,7 +209,7 @@ class MyBot(commands.Bot):
             return
     
     async def _run_migrations(self):
-        """Execute all SQL migration files"""
+        """Execute all SQL migration files with tracking to prevent duplicates"""
         migrations_dir = Path(__file__).parent / "migrations"
         
         if not migrations_dir.exists():
@@ -223,16 +223,47 @@ class MyBot(commands.Bot):
             return
         
         async with self.pool.acquire() as conn:
+            # Create migrations tracking table
+            try:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS schema_migrations (
+                        migration_name TEXT PRIMARY KEY,
+                        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+            except Exception as e:
+                print(f"[DB - Error] Failed to create migrations table: {e}")
+                raise
+            
             for migration_file in migration_files:
+                migration_name = migration_file.name
                 try:
-                    with open(migration_file, 'r', encoding='utf-8') as f:
-                        sql_content = f.read()
+                    # Check if migration already executed
+                    executed = await conn.fetchval(
+                        "SELECT 1 FROM schema_migrations WHERE migration_name = $1",
+                        migration_name,
+                    )
                     
-                    await conn.execute(sql_content)
-                    print(f"[DB] ✅ Migration executed: {migration_file.name}")
+                    if executed:
+                        print(f"[DB] ⏭️  Migration already executed: {migration_name}")
+                        continue
+                    
+                    # Execute migration in transaction
+                    async with conn.transaction():
+                        with open(migration_file, 'r', encoding='utf-8') as f:
+                            sql_content = f.read()
+                        
+                        await conn.execute(sql_content)
+                        
+                        # Register execution
+                        await conn.execute(
+                            "INSERT INTO schema_migrations (migration_name) VALUES ($1)",
+                            migration_name,
+                        )
+                        print(f"[DB] ✅ Migration executed: {migration_name}")
                     
                 except Exception as e:
-                    print(f"[DB - Error] Failed to execute migration {migration_file.name}: {e}")
+                    print(f"[DB - Error] Failed to execute migration {migration_name}: {e}")
                     raise
 
 bot = MyBot(command_prefix="!", intents=intents)

@@ -259,7 +259,7 @@ class Engagement(commands.Cog):
         except Exception as exc:
             print(f"[ENGAGEMENT] Failed to update mission progress for {message.author.id}: {exc}")
 
-    @app_commands.command(name="rep", description="Give +1 reputation to a member")
+    @app_commands.command(name="reputacao", description="Give +1 reputation to a member")
     async def rep(self, interaction: discord.Interaction, member: discord.Member):
         lang = await self._lang(interaction)
         if interaction.guild is None:
@@ -348,7 +348,7 @@ class Engagement(commands.Cog):
 
         await interaction.response.send_message(message)
 
-    @app_commands.command(name="repinfo", description="Show your or another member reputation")
+    @app_commands.command(name="minha_reputacao", description="Show your or another member reputation")
     async def repinfo(self, interaction: discord.Interaction, member: discord.Member | None = None):
         lang = await self._lang(interaction)
         if interaction.guild is None:
@@ -439,7 +439,7 @@ class Engagement(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="missionclaim", description="Claim your completed daily mission reward")
+    @app_commands.command(name="reclamar_missao", description="Claim your completed daily mission reward")
     async def missionclaim(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         if interaction.guild is None:
@@ -621,7 +621,7 @@ class Engagement(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="weeklymissionclaim", description="Claim your completed weekly mission reward")
+    @app_commands.command(name="reclamar_missao_semanal", description="Claim your completed weekly mission reward")
     async def weeklymissionclaim(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         if interaction.guild is None:
@@ -744,7 +744,7 @@ class Engagement(commands.Cog):
 
         await interaction.response.send_message(response, ephemeral=True)
 
-    @app_commands.command(name="achievements", description="Show unlocked achievements")
+    @app_commands.command(name="conquistas", description="Show unlocked achievements")
     async def achievements(self, interaction: discord.Interaction, member: discord.Member | None = None):
         lang = await self._lang(interaction)
         if interaction.guild is None:

@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta
+import logging
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import scripts.db
+
+logger = logging.getLogger(__name__)
 
 Database = scripts.db.Database
 
@@ -352,8 +355,8 @@ class Utils(commands.Cog):
 
         try:
             await log_channel.send(embed=embed)
-        except Exception:
-            return
+        except Exception as e:
+            logger.warning(f"Failed to send modmail log in guild: {e}")
 
     @tasks.loop(minutes=30)
     async def modmail_idle_watcher(self):
@@ -383,7 +386,8 @@ class Utils(commands.Cog):
 
                 try:
                     last_activity = await self._channel_last_activity(channel)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to get last activity for modmail channel {channel.id}: {e}")
                     continue
 
                 if last_activity > threshold:
@@ -394,7 +398,7 @@ class Utils(commands.Cog):
                     try:
                         await user.send(self._t("auto_closed", lang))
                     except discord.Forbidden:
-                        pass
+                        logger.debug(f"Could not send auto-close message to user {user.id}: Forbidden")
 
                 await self._log_transcript(guild, settings, channel, closer="AutoClose", reason="Inactive modmail")
                 try:
