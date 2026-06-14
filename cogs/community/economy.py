@@ -404,8 +404,8 @@ class Economy(commands.Cog):
 
         day_key = datetime.now(timezone.utc).date().isoformat()
         cache_key = (guild_id, user_id, day_key)
-async with self._cache_lock:
-                        self.voice_drop_daily_totals[cache_key] = daily_total + total_reward
+        async with self._cache_lock:
+            self.voice_drop_daily_totals[cache_key] = daily_total + total_reward
 
         lang = str(settings.get("language_code") or await self._guild_lang(member.guild))
         bonus_text = ""
