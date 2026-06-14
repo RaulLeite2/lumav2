@@ -137,14 +137,17 @@ class Economy(commands.Cog):
 
         await db.executemany(
             """
-            INSERT INTO shop_items (item_key, item_name, item_description, price, category, is_active)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO shop_items (item_key, item_name, item_description, price, category, currency_type, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (item_key) DO NOTHING
             """,
             [
-                ("xp_boost_1h", "XP Boost 1h", "Active your leveling journey: grants a personal XP bonus token for 1 hour.", 350, "boost", True),
-                ("lucky_crate", "Lucky Crate", "A crate with random economy surprises (future expansion item).", 500, "crate", True),
-                ("profile_badge", "Profile Badge", "Collectible profile badge to show your support in future profile cards.", 750, "cosmetic", True),
+                ("xp_boost_1h", "XP Boost 1h", "Active your leveling journey: grants a personal XP bonus token for 1 hour.", 350, "boost", "lumicoins", True),
+                ("lucky_crate", "Lucky Crate", "A crate with random economy surprises (future expansion item).", 500, "crate", "lumicoins", True),
+                ("profile_badge", "Profile Badge", "Collectible profile badge to show your support in future profile cards.", 750, "cosmetic", "lumicoins", True),
+                ("drop_focus_30m", "Drop Focus 30m", "Boost your next drop streak with a lightweight focus enhancer.", 120, "drop_boost", "drops", True),
+                ("drop_radar", "Drop Radar", "Improves your visibility on upcoming wave windows.", 240, "drop_utility", "drops", True),
+                ("drop_badge_neon", "Neon Drop Badge", "Exclusive badge style unlocked through drop currency.", 360, "drop_cosmetic", "drops", True),
             ],
         )
 
@@ -152,7 +155,7 @@ class Economy(commands.Cog):
         db = self._db()
         return await db.fetchrow(
             """
-            SELECT item_key, item_name, item_description, price, category, is_active
+            SELECT item_key, item_name, item_description, price, category, COALESCE(currency_type, 'lumicoins') AS currency_type, is_active
             FROM shop_items
             WHERE LOWER(item_key) = LOWER($1)
             """,
@@ -348,17 +351,20 @@ class Economy(commands.Cog):
                     """,
                     user_id,
                 )
-                new_balance = await connection.fetchval(
+                wallet_row = await connection.fetchrow(
                     """
                     UPDATE economy
                     SET balance = balance + $1,
+                        drop_balance = drop_balance + $1,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE user_id = $2
-                    RETURNING balance
+                    RETURNING balance, drop_balance
                     """,
                     total_reward,
                     user_id,
                 )
+                new_balance = int(wallet_row["balance"] or 0) if wallet_row else 0
+                new_drop_balance = int(wallet_row["drop_balance"] or 0) if wallet_row else 0
                 await connection.execute(
                     """
                     INSERT INTO economy_transactions (user_id, guild_id, delta, balance_after, tx_type, metadata)
@@ -375,6 +381,8 @@ class Economy(commands.Cog):
                             "participants": participant_count,
                             "party_bonus_percent": party_bonus_percent,
                             "interval_minutes": int(settings.get("interval_minutes") or 15),
+                            "drops_delta": int(total_reward),
+                            "drop_balance_after": int(new_drop_balance),
                         }
                     ),
                 )
@@ -669,7 +677,7 @@ class Economy(commands.Cog):
         await self._ensure_shop_items()
         rows = await db.fetch(
             """
-            SELECT item_key, item_name, item_description, price, category
+            SELECT item_key, item_name, item_description, price, category, COALESCE(currency_type, 'lumicoins') AS currency_type
             FROM shop_items
             WHERE is_active = TRUE
             ORDER BY price ASC
@@ -700,9 +708,11 @@ class Economy(commands.Cog):
         )
 
         for row in rows:
+            currency_type = str(row.get("currency_type") or "lumicoins").lower()
+            currency_label = "Drops" if currency_type == "drops" else "Lumicoins"
             embed.add_field(
                 name=f"{row['item_name']} ({row['item_key']})",
-                value=f"{row['item_description']}\n**{row['price']} Lumicoins** - {row['category']}",
+                value=f"{row['item_description']}\n**{row['price']} {currency_label}** - {row['category']}",
                 inline=False,
             )
 
@@ -729,11 +739,14 @@ class Economy(commands.Cog):
 
         unit_price = int(item["price"])
         total_cost = unit_price * int(quantity)
+        currency_type = str(item.get("currency_type") or "lumicoins").lower()
+        wallet_column = "drop_balance" if currency_type == "drops" else "balance"
+        currency_label = "Drops" if currency_type == "drops" else "Lumicoins"
 
         async with self.bot.pool.acquire() as connection:
             async with connection.transaction():
                 current_balance = await connection.fetchval(
-                    "SELECT balance FROM economy WHERE user_id = $1 FOR UPDATE",
+                    f"SELECT {wallet_column} FROM economy WHERE user_id = $1 FOR UPDATE",
                     interaction.user.id,
                 )
                 current_balance = int(current_balance or 0)
@@ -742,21 +755,21 @@ class Economy(commands.Cog):
                     await interaction.response.send_message(
                         tr(
                             lang,
-                            f"Saldo insuficiente. Voce precisa de **{total_cost}** e tem **{current_balance}** Lumicoins.",
-                            f"Insufficient balance. You need **{total_cost}** and have **{current_balance}** Lumicoins.",
-                            f"Saldo insuficiente. Necesitas **{total_cost}** y tienes **{current_balance}** Lumicoins.",
+                            f"Saldo insuficiente. Voce precisa de **{total_cost}** e tem **{current_balance}** {currency_label}.",
+                            f"Insufficient balance. You need **{total_cost}** and have **{current_balance}** {currency_label}.",
+                            f"Saldo insuficiente. Necesitas **{total_cost}** y tienes **{current_balance}** {currency_label}.",
                         ),
                         ephemeral=True,
                     )
                     return
 
                 new_balance = await connection.fetchval(
-                    """
+                    f"""
                     UPDATE economy
-                    SET balance = balance - $1,
+                    SET {wallet_column} = {wallet_column} - $1,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE user_id = $2
-                    RETURNING balance
+                    RETURNING {wallet_column}
                     """,
                     total_cost,
                     interaction.user.id,
@@ -784,18 +797,26 @@ class Economy(commands.Cog):
                     """,
                     interaction.user.id,
                     interaction.guild.id if interaction.guild else None,
-                    -int(total_cost),
-                    int(new_balance or 0),
-                    "shop_buy",
-                    json.dumps({"item_key": str(item["item_key"]), "quantity": int(quantity), "unit_price": int(unit_price)}),
+                    -int(total_cost) if currency_type != "drops" else 0,
+                    int(new_balance or 0) if currency_type != "drops" else None,
+                    "shop_buy_drops" if currency_type == "drops" else "shop_buy",
+                    json.dumps(
+                        {
+                            "item_key": str(item["item_key"]),
+                            "quantity": int(quantity),
+                            "unit_price": int(unit_price),
+                            "currency": currency_type,
+                            "wallet_after": int(new_balance or 0),
+                        }
+                    ),
                 )
 
         await interaction.response.send_message(
             tr(
                 lang,
-                f"Compra realizada: **{quantity}x {item['item_name']}** por **{total_cost} Lumicoins**.\nSaldo atual: **{int(new_balance or 0)}**\nNo inventario: **{int(new_quantity or 0)}**",
-                f"Purchase completed: **{quantity}x {item['item_name']}** for **{total_cost} Lumicoins**.\nCurrent balance: **{int(new_balance or 0)}**\nInventory amount: **{int(new_quantity or 0)}**",
-                f"Compra completada: **{quantity}x {item['item_name']}** por **{total_cost} Lumicoins**.\nSaldo actual: **{int(new_balance or 0)}**\nEn inventario: **{int(new_quantity or 0)}**",
+                f"Compra realizada: **{quantity}x {item['item_name']}** por **{total_cost} {currency_label}**.\nSaldo atual: **{int(new_balance or 0)} {currency_label}**\nNo inventario: **{int(new_quantity or 0)}**",
+                f"Purchase completed: **{quantity}x {item['item_name']}** for **{total_cost} {currency_label}**.\nCurrent balance: **{int(new_balance or 0)} {currency_label}**\nInventory amount: **{int(new_quantity or 0)}**",
+                f"Compra completada: **{quantity}x {item['item_name']}** por **{total_cost} {currency_label}**.\nSaldo actual: **{int(new_balance or 0)} {currency_label}**\nEn inventario: **{int(new_quantity or 0)}**",
             )
         )
 

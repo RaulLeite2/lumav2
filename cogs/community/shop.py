@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any
 
 import discord
@@ -21,6 +22,7 @@ class ShopItem:
 	description: str
 	price: int
 	category: str = "geral"
+	currency_type: str = "lumicoins"
 	is_active: bool = True
 
 
@@ -84,7 +86,7 @@ class Shop(commands.Cog):
 		db = self._db()
 		row = await db.fetchrow(
 			"""
-			SELECT item_key, item_name, item_description, price, category, is_active
+			SELECT item_key, item_name, item_description, price, category, COALESCE(currency_type, 'lumicoins') AS currency_type, is_active
 			FROM shop_items
 			WHERE LOWER(item_key) = LOWER($1)
 			""",
@@ -96,7 +98,7 @@ class Shop(commands.Cog):
 		db = self._db()
 		rows = await db.fetch(
 			"""
-			SELECT item_key, item_name, item_description, price, category
+			SELECT item_key, item_name, item_description, price, category, COALESCE(currency_type, 'lumicoins') AS currency_type
 			FROM shop_items
 			WHERE is_active = TRUE
 			ORDER BY category ASC, price ASC
@@ -113,14 +115,15 @@ class Shop(commands.Cog):
 				item.description,
 				int(item.price),
 				item.category,
+				item.currency_type,
 				bool(item.is_active),
 			)
 			for item in DEFAULT_RANDOM_ITEMS
 		]
 		await db.executemany(
 			"""
-			INSERT INTO shop_items (item_key, item_name, item_description, price, category, is_active)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO shop_items (item_key, item_name, item_description, price, category, currency_type, is_active)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (item_key) DO NOTHING
 			""",
 			payload,
@@ -162,9 +165,11 @@ class Shop(commands.Cog):
 		)
 
 		for item in items[:25]:
+			currency_type = str(item.get("currency_type") or "lumicoins").lower()
+			currency_label = "Drops" if currency_type == "drops" else "Lumicoins"
 			embed.add_field(
 				name=f"{item['item_name']} ({item['item_key']})",
-				value=f"{item['item_description']}\n**{int(item['price'])} Lumicoins** • {item['category']}",
+				value=f"{item['item_description']}\n**{int(item['price'])} {currency_label}** • {item['category']}",
 				inline=False,
 			)
 
@@ -197,11 +202,14 @@ class Shop(commands.Cog):
 
 		unit_price = int(item["price"])
 		total_cost = unit_price * int(quantity)
+		currency_type = str(item.get("currency_type") or "lumicoins").lower()
+		wallet_column = "drop_balance" if currency_type == "drops" else "balance"
+		currency_label = "Drops" if currency_type == "drops" else "Lumicoins"
 
 		async with self.bot.pool.acquire() as connection:
 			async with connection.transaction():
 				current_balance = await connection.fetchval(
-					"SELECT balance FROM economy WHERE user_id = $1 FOR UPDATE",
+					f"SELECT {wallet_column} FROM economy WHERE user_id = $1 FOR UPDATE",
 					interaction.user.id,
 				)
 				current_balance = int(current_balance or 0)
@@ -210,21 +218,21 @@ class Shop(commands.Cog):
 					await interaction.response.send_message(
 						tr(
 							lang,
-							f"Saldo insuficiente. Voce precisa de **{total_cost}** e tem **{current_balance}**.",
-							f"Insufficient balance. You need **{total_cost}** and have **{current_balance}**.",
-							f"Saldo insuficiente. Necesitas **{total_cost}** y tienes **{current_balance}**.",
+							f"Saldo insuficiente. Voce precisa de **{total_cost}** e tem **{current_balance}** {currency_label}.",
+							f"Insufficient balance. You need **{total_cost}** and have **{current_balance}** {currency_label}.",
+							f"Saldo insuficiente. Necesitas **{total_cost}** y tienes **{current_balance}** {currency_label}.",
 						),
 						ephemeral=True,
 					)
 					return
 
 				new_balance = await connection.fetchval(
-					"""
+					f"""
 					UPDATE economy
-					SET balance = balance - $1,
+					SET {wallet_column} = {wallet_column} - $1,
 						updated_at = CURRENT_TIMESTAMP
 					WHERE user_id = $2
-					RETURNING balance
+					RETURNING {wallet_column}
 					""",
 					total_cost,
 					interaction.user.id,
@@ -252,18 +260,18 @@ class Shop(commands.Cog):
 					""",
 					interaction.user.id,
 					interaction.guild.id if interaction.guild else None,
-					-int(total_cost),
-					int(new_balance or 0),
-					"shop_buy",
-					"{}",
+					-int(total_cost) if currency_type != "drops" else 0,
+					int(new_balance or 0) if currency_type != "drops" else None,
+					"shop_buy_drops" if currency_type == "drops" else "shop_buy",
+					json.dumps({"currency": currency_type, "item_key": str(item["item_key"]), "quantity": int(quantity), "unit_price": int(unit_price), "wallet_after": int(new_balance or 0)}),
 				)
 
 		await interaction.response.send_message(
 			tr(
 				lang,
-				f"Compra realizada: **{quantity}x {item['item_name']}** por **{total_cost} Lumicoins**. Saldo: **{int(new_balance or 0)}**. Inventario: **{int(new_quantity or 0)}**.",
-				f"Purchase completed: **{quantity}x {item['item_name']}** for **{total_cost} Lumicoins**. Balance: **{int(new_balance or 0)}**. Inventory: **{int(new_quantity or 0)}**.",
-				f"Compra completada: **{quantity}x {item['item_name']}** por **{total_cost} Lumicoins**. Saldo: **{int(new_balance or 0)}**. Inventario: **{int(new_quantity or 0)}**.",
+				f"Compra realizada: **{quantity}x {item['item_name']}** por **{total_cost} {currency_label}**. Saldo: **{int(new_balance or 0)} {currency_label}**. Inventario: **{int(new_quantity or 0)}**.",
+				f"Purchase completed: **{quantity}x {item['item_name']}** for **{total_cost} {currency_label}**. Balance: **{int(new_balance or 0)} {currency_label}**. Inventory: **{int(new_quantity or 0)}**.",
+				f"Compra completada: **{quantity}x {item['item_name']}** por **{total_cost} {currency_label}**. Saldo: **{int(new_balance or 0)} {currency_label}**. Inventario: **{int(new_quantity or 0)}**.",
 			),
 			ephemeral=True,
 		)
