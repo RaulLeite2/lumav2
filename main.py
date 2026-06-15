@@ -1,5 +1,6 @@
 import asyncio
 import time
+import traceback
 
 import discord 
 import asyncpg 
@@ -288,5 +289,21 @@ async def on_ready():
             [BOT] ID: {bot.user.id}
             ==========================================
     """)
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    command_name = interaction.command.qualified_name if interaction.command else "unknown"
+    print(f"[APP_CMD - Error] /{command_name}: {error}")
+    traceback.print_exception(type(error), error, error.__traceback__)
+
+    message = "Ocorreu um erro ao executar este comando. Tenta novamente em alguns segundos."
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except Exception as notify_error:
+        print(f"[APP_CMD - Error] Falha ao notificar usuario: {notify_error}")
 
 bot.run(TOKEN)

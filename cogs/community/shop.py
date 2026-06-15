@@ -68,6 +68,19 @@ class Shop(commands.Cog):
 	def _db(self) -> Database:
 		return Database(self.bot.pool)
 
+	async def _reply(
+		self,
+		interaction: discord.Interaction,
+		*,
+		content: str | None = None,
+		embed: discord.Embed | None = None,
+		ephemeral: bool = False,
+	) -> None:
+		if interaction.response.is_done():
+			await interaction.followup.send(content=content, embed=embed, ephemeral=ephemeral)
+			return
+		await interaction.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
+
 	async def _lang(self, interaction: discord.Interaction) -> str:
 		return await self.bot.i18n.language_for_interaction(self.bot, interaction)
 
@@ -137,12 +150,14 @@ class Shop(commands.Cog):
 
 	@shop_group.command(name="listar", description="Mostra os itens da loja")
 	async def list_items(self, interaction: discord.Interaction) -> None:
+		await interaction.response.defer(thinking=False)
 		lang = await self._lang(interaction)
 		await self._ensure_random_items()
 		items = await self._fetch_shop_items()
 
 		if not items:
-			await interaction.response.send_message(
+			await self._reply(
+				interaction,
 				tr(
 					lang,
 					"A loja esta vazia no momento.",
@@ -173,7 +188,7 @@ class Shop(commands.Cog):
 				inline=False,
 			)
 
-		await interaction.response.send_message(embed=embed)
+		await self._reply(interaction, embed=embed)
 
 	@shop_group.command(name="comprar", description="Compra um item da loja")
 	@app_commands.describe(item_key="Chave do item", quantity="Quantidade")
@@ -183,13 +198,15 @@ class Shop(commands.Cog):
 		item_key: str,
 		quantity: app_commands.Range[int, 1, 50] = 1,
 	) -> None:
+		await interaction.response.defer(ephemeral=True, thinking=False)
 		lang = await self._lang(interaction)
 		await self._ensure_account(interaction.user.id)
 		await self._ensure_random_items()
 
 		item = await self._fetch_item(item_key)
 		if not item or not bool(item.get("is_active")):
-			await interaction.response.send_message(
+			await self._reply(
+				interaction,
 				tr(
 					lang,
 					"Item nao encontrado ou indisponivel.",
@@ -215,7 +232,8 @@ class Shop(commands.Cog):
 				current_balance = int(current_balance or 0)
 
 				if current_balance < total_cost:
-					await interaction.response.send_message(
+					await self._reply(
+						interaction,
 						tr(
 							lang,
 							f"Saldo insuficiente. Voce precisa de **{total_cost}** e tem **{current_balance}** {currency_label}.",
@@ -266,7 +284,8 @@ class Shop(commands.Cog):
 					json.dumps({"currency": currency_type, "item_key": str(item["item_key"]), "quantity": int(quantity), "unit_price": int(unit_price), "wallet_after": int(new_balance or 0)}),
 				)
 
-		await interaction.response.send_message(
+		await self._reply(
+			interaction,
 			tr(
 				lang,
 				f"Compra realizada: **{quantity}x {item['item_name']}** por **{total_cost} {currency_label}**. Saldo: **{int(new_balance or 0)} {currency_label}**. Inventario: **{int(new_quantity or 0)}**.",
@@ -278,6 +297,7 @@ class Shop(commands.Cog):
 
 	@shop_group.command(name="inventario", description="Mostra seu inventario")
 	async def inventory(self, interaction: discord.Interaction, member: discord.Member | None = None) -> None:
+		await interaction.response.defer(ephemeral=True, thinking=False)
 		lang = await self._lang(interaction)
 		db = self._db()
 		target = member or interaction.user
@@ -295,7 +315,8 @@ class Shop(commands.Cog):
 		)
 
 		if not rows:
-			await interaction.response.send_message(
+			await self._reply(
+				interaction,
 				tr(
 					lang,
 					f"{target.mention} ainda nao possui itens no inventario.",
@@ -313,13 +334,15 @@ class Shop(commands.Cog):
 		for row in rows[:25]:
 			embed.add_field(name=row["item_name"], value=f"{row['quantity']}x ({row['item_key']})", inline=False)
 
-		await interaction.response.send_message(embed=embed, ephemeral=True)
+		await self._reply(interaction, embed=embed, ephemeral=True)
 
 	@shop_group.command(name="usar", description="Usa um item do seu inventario")
 	async def use_item(self, interaction: discord.Interaction, item_key: str) -> None:
+		await interaction.response.defer(ephemeral=True, thinking=False)
 		lang = await self._lang(interaction)
 		# Modelo base: implemente efeitos customizados aqui.
-		await interaction.response.send_message(
+		await self._reply(
+			interaction,
 			tr(
 				lang,
 				f"Uso de item ainda em construcao para `{item_key}`.",
