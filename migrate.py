@@ -28,7 +28,7 @@ async def run_migrations(pool: asyncpg.Pool):
     async with pool.acquire() as conn:
         for migration_file in migration_files:
             try:
-                with open(migration_file, 'r', encoding='utf-8') as f:
+                with open(migration_file, 'r', encoding='utf-8-sig') as f:
                     sql_content = f.read()
                 
                 # Execute the migration

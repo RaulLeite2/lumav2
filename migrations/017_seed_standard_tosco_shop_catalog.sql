@@ -1,4 +1,4 @@
-﻿-- Migration 017: seed standard tosco shop catalog
+-- Migration 017: seed standard tosco shop catalog
 -- Created: 2026-06-14
 
 INSERT INTO shop_items (item_key, item_name, item_description, price, category, currency_type, is_active)

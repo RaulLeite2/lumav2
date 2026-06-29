@@ -323,7 +323,8 @@ class MyBot(commands.Bot):
                     
                     # Execute migration in transaction
                     async with conn.transaction():
-                        with open(migration_file, 'r', encoding='utf-8') as f:
+                        # utf-8-sig tolerates accidental BOM in SQL files.
+                        with open(migration_file, 'r', encoding='utf-8-sig') as f:
                             sql_content = f.read()
                         
                         await conn.execute(sql_content)
