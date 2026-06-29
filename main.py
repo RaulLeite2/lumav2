@@ -1,16 +1,18 @@
 import asyncio
+import logging
+import os
 import time
 import traceback
-
-import discord 
-import asyncpg 
-from discord.ext import commands
-import os
-from dotenv import load_dotenv
 from pathlib import Path
 
-from scripts import db
+import asyncpg
+import discord
+from aiohttp import web
+from discord.ext import commands
+from dotenv import load_dotenv
+
 from modules.i18n import I18nService
+from modules.ops import OwnerAlertService
 from modules.plugin_system import PluginSystem
 
 # Carrega as variáveis do arquivo .env
@@ -25,6 +27,17 @@ if TOKEN is None:
     print("[ERROR] TOKEN environment variable not set. Please set it and restart the bot.")
     exit(1)
 
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+configure_logging()
+logger = logging.getLogger(__name__)
+
 class MyBot(commands.Bot):
     COG_STATE_CACHE_SECONDS = 60
 
@@ -33,6 +46,11 @@ class MyBot(commands.Bot):
         self._commands_synced = False
         self.i18n = I18nService(default_lang="pt")
         self._cog_state_cache: dict[tuple[int, str], tuple[float, bool]] = {}
+        self.owner_alerts = OwnerAlertService(self)
+        self.database_ready = False
+        self.migrations_ready = False
+        self._health_runner: web.AppRunner | None = None
+        self._health_site: web.TCPSite | None = None
 
     @staticmethod
     def _database_targets() -> list[tuple[str, dict[str, str | None]]]:
@@ -122,9 +140,54 @@ class MyBot(commands.Bot):
             self._cog_state_cache.pop(key, None)
 
     async def setup_hook(self):
+        await self._start_health_server()
         self._discover_internal_modules()
         await self.database_connect()
         await self.load_cogs()
+
+    async def notify_owner_error(self, title: str, error: BaseException, context: str | None = None) -> None:
+        await self.owner_alerts.notify_error(title=title, error=error, context=context)
+
+    async def _start_health_server(self) -> None:
+        host = os.getenv("HEALTHCHECK_HOST", "0.0.0.0")
+        raw_port = os.getenv("HEALTHCHECK_PORT") or os.getenv("PORT") or "8080"
+        try:
+            port = int(raw_port)
+        except ValueError:
+            logger.warning("Invalid HEALTHCHECK_PORT/PORT value: %s. Falling back to 8080.", raw_port)
+            port = 8080
+
+        async def health_handler(_request: web.Request) -> web.Response:
+            payload = {
+                "status": "ok",
+                "database_ready": self.database_ready,
+                "migrations_ready": self.migrations_ready,
+                "discord_ready": self.is_ready(),
+            }
+            return web.json_response(payload, status=200)
+
+        async def ready_handler(_request: web.Request) -> web.Response:
+            ready = self.database_ready and self.migrations_ready and self.is_ready()
+            payload = {
+                "status": "ready" if ready else "not_ready",
+                "database_ready": self.database_ready,
+                "migrations_ready": self.migrations_ready,
+                "discord_ready": self.is_ready(),
+            }
+            return web.json_response(payload, status=200 if ready else 503)
+
+        app = web.Application()
+        app.router.add_get("/health", health_handler)
+        app.router.add_get("/ready", ready_handler)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host=host, port=port)
+        await site.start()
+
+        self._health_runner = runner
+        self._health_site = site
+        logger.info("Health server listening on %s:%s", host, port)
 
     def _discover_internal_modules(self):
         modules_root = Path(__file__).parent / "modules"
@@ -149,10 +212,16 @@ class MyBot(commands.Bot):
         self._commands_synced = True
         
     async def close(self):
-        print("[BOT] Shutting down...")
+        logger.info("[BOT] Shutting down...")
         pool = getattr(self, "pool", None)
         if pool is not None:
             await pool.close()
+
+        if self._health_runner is not None:
+            await self._health_runner.cleanup()
+            self._health_runner = None
+            self._health_site = None
+
         await super().close()
     
     async def database_connect(self):
@@ -179,6 +248,7 @@ class MyBot(commands.Bot):
             """)
                 try:
                     self.pool = await asyncpg.create_pool(**connection_kwargs)
+                    self.database_ready = True
                     print(f"[DB] Database connection established via {source_name}.")
                     break
                 except Exception as e:
@@ -204,8 +274,10 @@ class MyBot(commands.Bot):
         """)
         try:
             await self._run_migrations()
+            self.migrations_ready = True
         except Exception as e:
             print(f"[DB - Error] Failed to set up database tables: {e}")
+            await self.notify_owner_error("database_setup", e, context="Failed to run migrations during startup")
             await self.close()
             return
     
@@ -282,6 +354,7 @@ async def on_ready():
             print("[BOT] Slash commands sincronizados com sucesso.")
         except Exception as e:
             print(f"[BOT - Error] Falha ao sincronizar slash commands: {e}")
+            await bot.notify_owner_error("slash_sync", e, context="Failed to sync slash command tree")
 
     print(f"""
             ================ BOT READY ===============
@@ -294,8 +367,12 @@ async def on_ready():
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
     command_name = interaction.command.qualified_name if interaction.command else "unknown"
-    print(f"[APP_CMD - Error] /{command_name}: {error}")
-    traceback.print_exception(type(error), error, error.__traceback__)
+    logger.exception("[APP_CMD - Error] /%s: %s", command_name, error)
+    await bot.notify_owner_error(
+        "app_command",
+        error,
+        context=f"command=/{command_name} guild={getattr(interaction.guild, 'id', None)} user={interaction.user.id}",
+    )
 
     message = "Ocorreu um erro ao executar este comando. Tenta novamente em alguns segundos."
     try:
@@ -304,6 +381,20 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
         else:
             await interaction.response.send_message(message, ephemeral=True)
     except Exception as notify_error:
-        print(f"[APP_CMD - Error] Falha ao notificar usuario: {notify_error}")
+        logger.exception("[APP_CMD - Error] Falha ao notificar usuario: %s", notify_error)
+
+
+@bot.event
+async def on_error(event_method: str, *args, **kwargs):
+    error = traceback.format_exc()
+    logger.error("[BOT - Error] Event %s failed: %s", event_method, error)
+    try:
+        raise RuntimeError(f"Unhandled event error in {event_method}\n{error}")
+    except RuntimeError as wrapped_error:
+        await bot.notify_owner_error(
+            "event_error",
+            wrapped_error,
+            context=f"event={event_method}",
+        )
 
 bot.run(TOKEN)

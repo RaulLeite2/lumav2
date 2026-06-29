@@ -1,4 +1,5 @@
 import os
+import logging
 
 import aiohttp
 import discord
@@ -8,6 +9,8 @@ from discord.ext import commands
 from modules.ai.config import AI_GUILD_PER_DAY_LIMIT, AI_USER_PER_MINUTE_LIMIT
 from modules.ai.services import AICacheService, AICooldownService, GroqClient
 from modules.moderation.services import StatsService
+
+logger = logging.getLogger(__name__)
 
 
 class AI(commands.Cog):
@@ -82,19 +85,19 @@ class AI(commands.Cog):
 			"es": "Respuesta en cache (mas rapida)",
 		},
 		"network_error": {
-			"pt": "Tive um erro de conexao com a IA: {error}",
-			"en": "I had a connection error with the AI: {error}",
-			"es": "Tuve un error de conexion con la IA: {error}",
+			"pt": "Tive um erro de conexao com a IA. Tenta novamente em instantes.",
+			"en": "I had a connection error with AI. Please try again shortly.",
+			"es": "Tuve un error de conexion con la IA. Intenta de nuevo en breve.",
 		},
 		"runtime_error": {
-			"pt": "Nao consegui consultar a IA agora. {error}",
-			"en": "I could not query the AI right now. {error}",
-			"es": "No pude consultar la IA ahora mismo. {error}",
+			"pt": "Nao consegui consultar a IA agora. Tenta novamente em instantes.",
+			"en": "I could not query AI right now. Please try again shortly.",
+			"es": "No pude consultar la IA ahora mismo. Intenta de nuevo en breve.",
 		},
 		"unknown_error": {
-			"pt": "Erro inesperado ao consultar a IA: {error}",
-			"en": "Unexpected error while querying the AI: {error}",
-			"es": "Error inesperado al consultar la IA: {error}",
+			"pt": "Erro inesperado ao consultar a IA. Tenta novamente em instantes.",
+			"en": "Unexpected error while querying AI. Please try again shortly.",
+			"es": "Error inesperado al consultar la IA. Intenta de nuevo en breve.",
 		},
 		"empty_answer": {
 			"pt": "A IA respondeu sem conteudo desta vez. Tenta de novo?",
@@ -253,13 +256,31 @@ class AI(commands.Cog):
 				temperature=0.7,
 			)
 		except aiohttp.ClientError as e:
-			await interaction.followup.send(self._msg("network_error", lang, error=e))
+			logger.exception("AI network failure in guild %s for user %s", interaction.guild.id, interaction.user.id)
+			await self.bot.notify_owner_error(
+				"ai_network_error",
+				e,
+				context=f"guild={interaction.guild.id} user={interaction.user.id}",
+			)
+			await interaction.followup.send(self._msg("network_error", lang))
 			return
 		except RuntimeError as e:
-			await interaction.followup.send(self._msg("runtime_error", lang, error=e))
+			logger.exception("AI runtime failure in guild %s for user %s", interaction.guild.id, interaction.user.id)
+			await self.bot.notify_owner_error(
+				"ai_runtime_error",
+				e,
+				context=f"guild={interaction.guild.id} user={interaction.user.id}",
+			)
+			await interaction.followup.send(self._msg("runtime_error", lang))
 			return
 		except Exception as e:
-			await interaction.followup.send(self._msg("unknown_error", lang, error=e))
+			logger.exception("Unexpected AI failure in guild %s for user %s", interaction.guild.id, interaction.user.id)
+			await self.bot.notify_owner_error(
+				"ai_unknown_error",
+				e,
+				context=f"guild={interaction.guild.id} user={interaction.user.id}",
+			)
+			await interaction.followup.send(self._msg("unknown_error", lang))
 			return
 
 		if not answer:

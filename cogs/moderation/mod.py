@@ -70,7 +70,7 @@ class ModerationLogger:
                     if isinstance(channel, discord.TextChannel):
                         return channel
         except Exception as e:
-            print(f"[Moderation] log channel error: {e}")
+            logger.exception("[Moderation] log channel error: %s", e)
         return None
 
     @staticmethod
@@ -167,12 +167,51 @@ class Moderation(commands.Cog):
             return
 
         try:
-            user = await self.bot.fetch_user(int(user_id))
+            parsed_user_id = int(user_id)
+        except ValueError:
+            await interaction.response.send_message(
+                tr(lang, "ID de usuario invalido.", "Invalid user ID.", "ID de usuario invalido."),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            user = await self.bot.fetch_user(parsed_user_id)
             await interaction.guild.unban(user)
             await interaction.response.send_message(tr(lang, f"Tudo certo! Usuario {user.mention} desbanido.", f"Done! User {user.mention} was unbanned.", f"Todo bien! Usuario {user.mention} fue desbaneado."))
             await ModerationLogger.log_action(self.bot, interaction.guild, "unban", interaction.user, user)
+        except discord.NotFound:
+            await interaction.response.send_message(
+                tr(lang, "Nao achei esse usuario na lista de banidos.", "I could not find that user in the ban list.", "No encontre a ese usuario en la lista de baneados."),
+                ephemeral=True,
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                tr(lang, "Nao tenho permissao para desbanir esse usuario.", "I do not have permission to unban this user.", "No tengo permisos para desbanear a este usuario."),
+                ephemeral=True,
+            )
+        except discord.HTTPException as exc:
+            logger.exception("Failed to unban user %s in guild %s", parsed_user_id, interaction.guild.id)
+            await self.bot.notify_owner_error(
+                "mod_unban_http",
+                exc,
+                context=f"guild={interaction.guild.id} moderator={interaction.user.id} target={parsed_user_id}",
+            )
+            await interaction.response.send_message(
+                tr(lang, "Nao consegui desbanir agora. Tenta novamente em instantes.", "I could not unban right now. Please try again shortly.", "No pude desbanear ahora. Intentalo de nuevo en breve."),
+                ephemeral=True,
+            )
         except Exception as exc:
-            await interaction.response.send_message(tr(lang, f"Nao consegui desbanir agora: {exc}", f"I could not unban right now: {exc}", f"No pude desbanear ahora: {exc}"), ephemeral=True)
+            logger.exception("Unexpected error while unbanning user %s in guild %s", parsed_user_id, interaction.guild.id)
+            await self.bot.notify_owner_error(
+                "mod_unban_unexpected",
+                exc,
+                context=f"guild={interaction.guild.id} moderator={interaction.user.id} target={parsed_user_id}",
+            )
+            await interaction.response.send_message(
+                tr(lang, "Nao consegui desbanir agora. Tenta novamente em instantes.", "I could not unban right now. Please try again shortly.", "No pude desbanear ahora. Intentalo de nuevo en breve."),
+                ephemeral=True,
+            )
 
     @mod.command(name="kick", description="Kick a user")
     async def kick(self, interaction: discord.Interaction, user: discord.Member, reason: str):
@@ -216,8 +255,27 @@ class Moderation(commands.Cog):
             await user.timeout(timeout_until, reason=reason)
             await interaction.response.send_message(tr(lang, f"Tudo certo! {user.mention} entrou em timeout por {duration}.", f"All good! {user.mention} was timed out for {duration}.", f"Todo bien! {user.mention} entro en timeout por {duration}."))
             await ModerationLogger.log_action(self.bot, interaction.guild, "timeout", interaction.user, user, reason=reason, duration=duration)
+        except ValueError:
+            await interaction.response.send_message(
+                tr(lang, "Duracao invalida. Use formatos como 30s, 10m, 2h ou 1d.", "Invalid duration. Use formats like 30s, 10m, 2h or 1d.", "Duracion invalida. Usa formatos como 30s, 10m, 2h o 1d."),
+                ephemeral=True,
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                tr(lang, "Nao tenho permissao para aplicar timeout nesse usuario.", "I do not have permission to timeout this user.", "No tengo permisos para aplicar timeout a este usuario."),
+                ephemeral=True,
+            )
         except Exception as exc:
-            await interaction.response.send_message(tr(lang, f"Nao consegui aplicar timeout agora: {exc}", f"I could not apply timeout right now: {exc}", f"No pude aplicar timeout ahora: {exc}"), ephemeral=True)
+            logger.exception("Failed to apply timeout in guild %s for target %s", interaction.guild.id, user.id)
+            await self.bot.notify_owner_error(
+                "mod_timeout",
+                exc,
+                context=f"guild={interaction.guild.id} moderator={interaction.user.id} target={user.id} duration={duration}",
+            )
+            await interaction.response.send_message(
+                tr(lang, "Nao consegui aplicar timeout agora. Tenta novamente em instantes.", "I could not apply timeout right now. Please try again shortly.", "No pude aplicar timeout ahora. Intentalo de nuevo en breve."),
+                ephemeral=True,
+            )
 
     @mod.command(name="warn", description="Warn a user")
     async def warn(self, interaction: discord.Interaction, user: discord.Member, reason: str):
@@ -351,7 +409,16 @@ class Moderation(commands.Cog):
                 temperature=0.2,
             )
         except Exception as exc:
-            await interaction.followup.send(tr(lang, f"Nao consegui consultar a IA agora: {exc}", f"I could not query AI right now: {exc}", f"No pude consultar la IA ahora: {exc}"), ephemeral=True)
+            logger.exception("AI moderation analysis failed in guild %s", interaction.guild.id)
+            await self.bot.notify_owner_error(
+                "mod_ai_analisar",
+                exc,
+                context=f"guild={interaction.guild.id} moderator={interaction.user.id}",
+            )
+            await interaction.followup.send(
+                tr(lang, "Nao consegui consultar a IA agora. Tenta novamente em instantes.", "I could not query AI right now. Please try again shortly.", "No pude consultar la IA ahora. Intentalo de nuevo en breve."),
+                ephemeral=True,
+            )
             return
 
         toxicity = "N/A"

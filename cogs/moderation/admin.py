@@ -1,8 +1,12 @@
 import discord
+import logging
+import os
 from discord import app_commands
 from discord.ext import commands
 from dataclasses import dataclass
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
@@ -320,6 +324,8 @@ class EmbedBuilderView(discord.ui.View):
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        configured_owner = os.getenv("OWNER_ALERT_USER_ID", "").strip()
+        self.owner_id = int(configured_owner) if configured_owner.isdigit() else 947849382278094880
 
     admin = app_commands.Group(name="admin", description="Administrative commands")
 
@@ -433,15 +439,69 @@ class Admin(commands.Cog):
         if isinstance(error, app_commands.MissingPermissions):
             await self._send_ephemeral(interaction, tr(lang, "So administradores podem usar este comando.", "Only administrators can use this command.", "Solo administradores pueden usar este comando."))
             return
-        await self._send_ephemeral(interaction, str(error))
+
+        logger.exception("Sync command failed: %s", error)
+        await self.bot.notify_owner_error(
+            "admin_sync",
+            error,
+            context=f"guild={getattr(interaction.guild, 'id', None)} user={interaction.user.id}",
+        )
+        await self._send_ephemeral(
+            interaction,
+            tr(
+                lang,
+                "A sincronizacao falhou agora. Tenta novamente em instantes.",
+                "Sync failed right now. Please try again shortly.",
+                "La sincronizacion fallo ahora. Intentalo de nuevo en breve.",
+            ),
+        )
 
     @admin.command(name="health", description="Check bot health")
     async def health(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
         latency_ms = round(self.bot.latency * 1000)
         database_ping = "OK" if self.bot.pool and not self.bot.pool._closed else "OFF"
+        database_ready = bool(getattr(self.bot, "database_ready", False))
+        migrations_ready = bool(getattr(self.bot, "migrations_ready", False))
+        discord_ready = bool(self.bot.is_ready())
+        owner_alerts_enabled = bool(getattr(getattr(self.bot, "owner_alerts", None), "enabled", False))
         await interaction.response.send_message(
-            tr(lang, f"Pong! Latencia: {latency_ms}ms | DB: {database_ping}", f"Pong! Latency: {latency_ms}ms | DB: {database_ping}", f"Pong! Latencia: {latency_ms}ms | DB: {database_ping}"),
+            tr(
+                lang,
+                f"Latencia: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | Alertas DM: {owner_alerts_enabled}",
+                f"Latency: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | DM Alerts: {owner_alerts_enabled}",
+                f"Latencia: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | Alertas DM: {owner_alerts_enabled}",
+            ),
+            ephemeral=True,
+        )
+
+    @admin.command(name="test-alert", description="Send a manual runtime alert to owner DM")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def test_alert(self, interaction: discord.Interaction):
+        lang = await self._lang(interaction)
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                tr(lang, "Voce nao tem permissao para isso.", "You do not have permission for this.", "No tienes permiso para esto."),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            raise RuntimeError("Manual diagnostic alert triggered by admin command")
+        except RuntimeError as exc:
+            await self.bot.notify_owner_error(
+                "manual_test_alert",
+                exc,
+                context=f"guild={getattr(interaction.guild, 'id', None)} user={interaction.user.id}",
+            )
+
+        await interaction.response.send_message(
+            tr(
+                lang,
+                "Teste enviado. Confere sua DM no Discord.",
+                "Test sent. Check your Discord DM.",
+                "Prueba enviada. Revisa tu DM en Discord.",
+            ),
             ephemeral=True,
         )
 
@@ -456,7 +516,16 @@ class Admin(commands.Cog):
             await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=False)
             await interaction.followup.send(tr(lang, f"Canal {interaction.channel.mention} trancado.", f"Channel {interaction.channel.mention} locked.", f"Canal {interaction.channel.mention} bloqueado."), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(str(e), ephemeral=True)
+            logger.exception("Failed to lock channel %s in guild %s", interaction.channel.id, interaction.guild.id)
+            await self.bot.notify_owner_error(
+                "admin_lockdown",
+                e,
+                context=f"guild={interaction.guild.id} channel={interaction.channel.id} user={interaction.user.id}",
+            )
+            await interaction.followup.send(
+                tr(lang, "Nao consegui trancar o canal agora.", "I could not lock the channel right now.", "No pude bloquear el canal ahora."),
+                ephemeral=True,
+            )
 
     @admin.command(name="unlock", description="Unlock current channel")
     async def unlock(self, interaction: discord.Interaction):
@@ -469,7 +538,16 @@ class Admin(commands.Cog):
             await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=True)
             await interaction.followup.send(tr(lang, f"Canal {interaction.channel.mention} destrancado.", f"Channel {interaction.channel.mention} unlocked.", f"Canal {interaction.channel.mention} desbloqueado."), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(str(e), ephemeral=True)
+            logger.exception("Failed to unlock channel %s in guild %s", interaction.channel.id, interaction.guild.id)
+            await self.bot.notify_owner_error(
+                "admin_unlock",
+                e,
+                context=f"guild={interaction.guild.id} channel={interaction.channel.id} user={interaction.user.id}",
+            )
+            await interaction.followup.send(
+                tr(lang, "Nao consegui destrancar o canal agora.", "I could not unlock the channel right now.", "No pude desbloquear el canal ahora."),
+                ephemeral=True,
+            )
 
     @admin.command(name="slowmode", description="Set slowmode for current channel")
     async def slowmode(self, interaction: discord.Interaction, segundos: int):
@@ -537,8 +615,7 @@ class Admin(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def reload(self, interaction: discord.Interaction):
         lang = await self._lang(interaction)
-        owner_id = 947849382278094880
-        if interaction.user.id != owner_id:
+        if interaction.user.id != self.owner_id:
             await interaction.response.send_message(tr(lang, "Voce nao tem permissao para isso.", "You do not have permission for this.", "No tienes permiso para esto."), ephemeral=True)
             return
 
