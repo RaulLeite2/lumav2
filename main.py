@@ -145,8 +145,15 @@ class MyBot(commands.Bot):
         await self.database_connect()
         await self.load_cogs()
 
-    async def notify_owner_error(self, title: str, error: BaseException, context: str | None = None) -> None:
-        await self.owner_alerts.notify_error(title=title, error=error, context=context)
+    async def notify_owner_error(
+        self,
+        title: str,
+        error: BaseException,
+        context: str | None = None,
+        *,
+        is_test: bool = False,
+    ) -> None:
+        await self.owner_alerts.notify_error(title=title, error=error, context=context, is_test=is_test)
 
     async def _start_health_server(self) -> None:
         host = os.getenv("HEALTHCHECK_HOST", "0.0.0.0")

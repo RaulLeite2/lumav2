@@ -486,14 +486,12 @@ class Admin(commands.Cog):
             )
             return
 
-        try:
-            raise RuntimeError("Manual diagnostic alert triggered by admin command")
-        except RuntimeError as exc:
-            await self.bot.notify_owner_error(
-                "manual_test_alert",
-                exc,
-                context=f"guild={getattr(interaction.guild, 'id', None)} user={interaction.user.id}",
-            )
+        await self.bot.notify_owner_error(
+            "manual_test_alert",
+            RuntimeError("Manual diagnostic alert triggered by admin command"),
+            context=f"guild={getattr(interaction.guild, 'id', None)} user={interaction.user.id}",
+            is_test=True,
+        )
 
         await interaction.response.send_message(
             tr(

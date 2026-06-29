@@ -24,8 +24,20 @@ class OwnerAlertService:
         self._last_sent_at = 0.0
         self._cooldown_seconds = int(os.getenv("OWNER_ALERT_COOLDOWN_SECONDS", "20"))
 
-    async def notify_error(self, title: str, error: BaseException, context: str | None = None) -> None:
-        logger.exception("%s: %s", title, error)
+    async def notify_error(
+        self,
+        title: str,
+        error: BaseException,
+        context: str | None = None,
+        *,
+        is_test: bool = False,
+    ) -> None:
+        if is_test:
+            logger.info("%s [test]: %s", title, error)
+        elif error.__traceback__ is not None:
+            logger.exception("%s: %s", title, error)
+        else:
+            logger.error("%s: %s", title, error)
 
         if not self.enabled:
             return
@@ -53,8 +65,12 @@ class OwnerAlertService:
         tb = tb[-3500:] if tb else "No traceback available"
 
         embed = discord.Embed(
-            title=f"[Luma] Runtime error: {title[:180]}",
-            color=discord.Color.red(),
+            title=(
+                f"[Luma] Test alert: {title[:180]}"
+                if is_test
+                else f"[Luma] Runtime error: {title[:180]}"
+            ),
+            color=discord.Color.orange() if is_test else discord.Color.red(),
             timestamp=discord.utils.utcnow(),
         )
         if context:
