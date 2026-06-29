@@ -73,10 +73,6 @@ class LumaCommandTree(app_commands.CommandTree):
 
 class MyBot(commands.AutoShardedBot):
     COG_STATE_CACHE_SECONDS = 60
-    SKIPPED_EXTENSIONS = {
-        # Template cog that collides with economy slash command namespace (/loja).
-        "cogs.community.shop",
-    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -140,9 +136,6 @@ class MyBot(commands.AutoShardedBot):
             # Converte o path para notação de módulo Python:
             # cogs/moderation/mod.py → cogs.moderation.mod
             module_name = ".".join(path.relative_to(Path(__file__).parent).with_suffix("").parts)
-            if module_name in self.SKIPPED_EXTENSIONS:
-                logger.info("[COG] skipped=%s", module_name)
-                continue
             try:
                 await self.load_extension(module_name)
                 self.loaded_cogs.append(module_name)

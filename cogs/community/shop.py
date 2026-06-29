@@ -58,8 +58,8 @@ class Shop(commands.Cog):
 	"""
 
 	shop_group = app_commands.Group(
-		name="loja",
-		description="Comandos da loja da comunidade",
+		name="shop",
+		description="Comandos extras da loja da comunidade",
 	)
 
 	def __init__(self, bot: commands.Bot):
@@ -172,9 +172,9 @@ class Shop(commands.Cog):
 			title=tr(lang, "Loja da Comunidade", "Community Shop", "Tienda de la Comunidad"),
 			description=tr(
 				lang,
-				"Use `/loja comprar item_key quantidade` para adquirir itens.",
-				"Use `/loja comprar item_key quantity` to buy items.",
-				"Usa `/loja comprar item_key cantidad` para comprar items.",
+				"Use `/shop comprar item_key quantidade` para adquirir itens.",
+				"Use `/shop comprar item_key quantity` to buy items.",
+				"Usa `/shop comprar item_key cantidad` para comprar items.",
 			),
 			color=discord.Color.green(),
 		)
