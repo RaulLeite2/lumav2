@@ -29,6 +29,13 @@ class PluginSystem:
             if not child.is_dir():
                 continue
 
+            if child.name.startswith("__") or child.name.startswith("."):
+                continue
+
+            # A valid internal module should be a Python package directory.
+            if not (child / "__init__.py").exists():
+                continue
+
             name = child.name
             descriptors.append(
                 PluginDescriptor(

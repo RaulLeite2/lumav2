@@ -16,6 +16,7 @@ Run a separate staging bot and database before promoting changes to production.
 - `COMMAND_RATE_LIMIT_PER_GUILD`
 - `COMMAND_RATE_LIMIT_WINDOW_SECONDS`
 - `SHARD_COUNT` (optional)
+- `ENABLE_MESSAGE_CONTENT_INTENT` (`true` by default; set `false` only as temporary fallback)
 
 ## Deployment recommendations
 - Service name example: `luma-staging`
@@ -28,6 +29,11 @@ Run a separate staging bot and database before promoting changes to production.
 3. `/admin health` shows DB/Discord/Migrations ready.
 4. `/admin test-alert` delivers DM test alert.
 5. Core commands (`/setup`, `/mod warn`, `/ask`) execute normally.
+
+## Discord privileged intent note
+- Enable **Message Content Intent** in Discord Developer Portal for the staging bot.
+- If you need an emergency boot fallback before enabling it, set `ENABLE_MESSAGE_CONTENT_INTENT=false`.
+- Warning: with fallback disabled intent, message-based systems (XP/engagement automations) lose accuracy.
 
 ## Promotion to production
 1. Merge tested staging branch into `main`.

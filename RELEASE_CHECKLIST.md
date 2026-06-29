@@ -13,6 +13,7 @@
 2. Verify `/health` and `/ready`.
 3. Verify `/admin health` and `/admin test-alert`.
 4. Run smoke test of critical commands.
+5. Confirm Message Content Intent enabled for the staging Discord app.
 
 ## Production
 1. Merge to `main`.

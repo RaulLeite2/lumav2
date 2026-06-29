@@ -22,8 +22,11 @@ from modules.plugin_system import PluginSystem
 load_dotenv()
 
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = os.getenv("ENABLE_MESSAGE_CONTENT_INTENT", "true").strip().lower() not in {"0", "false", "no"}
 intents.voice_states = True
+
+if not intents.message_content:
+    logger.warning("Message Content intent is disabled via ENABLE_MESSAGE_CONTENT_INTENT.")
 
 TOKEN = os.getenv("TOKEN")
 if TOKEN is None:
@@ -70,6 +73,10 @@ class LumaCommandTree(app_commands.CommandTree):
 
 class MyBot(commands.AutoShardedBot):
     COG_STATE_CACHE_SECONDS = 60
+    SKIPPED_EXTENSIONS = {
+        # Template cog that collides with economy slash command namespace (/loja).
+        "cogs.community.shop",
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -133,6 +140,9 @@ class MyBot(commands.AutoShardedBot):
             # Converte o path para notação de módulo Python:
             # cogs/moderation/mod.py → cogs.moderation.mod
             module_name = ".".join(path.relative_to(Path(__file__).parent).with_suffix("").parts)
+            if module_name in self.SKIPPED_EXTENSIONS:
+                logger.info("[COG] skipped=%s", module_name)
+                continue
             try:
                 await self.load_extension(module_name)
                 self.loaded_cogs.append(module_name)
