@@ -465,12 +465,15 @@ class Admin(commands.Cog):
         migrations_ready = bool(getattr(self.bot, "migrations_ready", False))
         discord_ready = bool(self.bot.is_ready())
         owner_alerts_enabled = bool(getattr(getattr(self.bot, "owner_alerts", None), "enabled", False))
+        loaded_cogs = len(getattr(self.bot, "loaded_cogs", []))
+        failed_cogs = len(getattr(self.bot, "failed_cogs", []))
+        internal_modules = len(getattr(self.bot, "internal_modules", []))
         await interaction.response.send_message(
             tr(
                 lang,
-                f"Latencia: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | Alertas DM: {owner_alerts_enabled}",
-                f"Latency: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | DM Alerts: {owner_alerts_enabled}",
-                f"Latencia: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | Alertas DM: {owner_alerts_enabled}",
+                f"Latencia: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | Alertas DM: {owner_alerts_enabled} | Cogs: {loaded_cogs} ({failed_cogs} falhas) | Modulos internos: {internal_modules}",
+                f"Latency: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | DM Alerts: {owner_alerts_enabled} | Cogs: {loaded_cogs} ({failed_cogs} failed) | Internal modules: {internal_modules}",
+                f"Latencia: {latency_ms}ms | DB: {database_ping} | DB Ready: {database_ready} | Migrations Ready: {migrations_ready} | Discord Ready: {discord_ready} | Alertas DM: {owner_alerts_enabled} | Cogs: {loaded_cogs} ({failed_cogs} fallos) | Modulos internos: {internal_modules}",
             ),
             ephemeral=True,
         )
@@ -622,6 +625,6 @@ class Admin(commands.Cog):
 
 
 async def setup(bot):
-    print("[DEBUG] Carregando cog Admin...")
+    logger.info("[COG] Loading Admin")
     await bot.add_cog(Admin(bot))
-    print("[DEBUG] Cog Admin carregado com sucesso!")
+    logger.info("[COG] Admin loaded")

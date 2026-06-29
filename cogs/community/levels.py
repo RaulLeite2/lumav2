@@ -1,10 +1,13 @@
 import discord
+import logging
 from discord import app_commands
 from discord.ext import commands
 import re
 import time
 
 import scripts.db as db
+
+logger = logging.getLogger(__name__)
 
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
@@ -151,7 +154,7 @@ class Levels(commands.Cog):
 
             self._xp_cooldown[user_key] = now
         except Exception as exc:
-            print(f"[LEVELS] Failed to award XP in guild {message.guild.id}: {exc}")
+            logger.warning("[LEVELS] Failed to award XP in guild=%s: %s", message.guild.id, exc)
 
     @levels.command(name="rank", description="Check your current level and XP")
     async def rank(self, interaction: discord.Interaction):
@@ -243,6 +246,6 @@ class Levels(commands.Cog):
 
 
 async def setup(bot):
-    print("[DEBUG] Carregando cog Levels...")
+    logger.info("[COG] Loading Levels")
     await bot.add_cog(Levels(bot))
-    print("[DEBUG] Cog Levels carregado com sucesso!")
+    logger.info("[COG] Levels loaded")

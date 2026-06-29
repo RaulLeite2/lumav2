@@ -1,9 +1,12 @@
 import discord
+import logging
 from discord import app_commands
 from discord.ext import commands
 
 from modules.admin.services import AuditLogger
 from modules.moderation.services import StatsService
+
+logger = logging.getLogger(__name__)
 
 
 class Stats(commands.Cog):
@@ -127,6 +130,6 @@ class Stats(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    print("[DEBUG] Carregando cog Stats...")
+    logger.info("[COG] Loading Stats")
     await bot.add_cog(Stats(bot))
-    print("[DEBUG] Cog Stats carregado com sucesso!")
+    logger.info("[COG] Stats loaded")

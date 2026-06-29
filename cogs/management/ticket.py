@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import discord
 from discord import app_commands
@@ -7,6 +8,8 @@ from discord.ext import commands
 from modules.admin.services import AuditLogger
 from modules.moderation.services import StatsService
 from modules.tickets.config import TICKET_CHANNEL_PREFIX
+
+logger = logging.getLogger(__name__)
 
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
@@ -336,6 +339,6 @@ class Ticket(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    print("[DEBUG] Carregando cog Ticket...")
+    logger.info("[COG] Loading Ticket")
     await bot.add_cog(Ticket(bot))
-    print("[DEBUG] Cog Ticket carregado com sucesso!")
+    logger.info("[COG] Ticket loaded")

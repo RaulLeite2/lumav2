@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import itertools
+import logging
 import re
 
 import discord
@@ -7,6 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 
 import scripts.db
+
+logger = logging.getLogger(__name__)
 
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
@@ -692,8 +695,7 @@ class Events(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        print("[DEBUG Events Cog] on_ready called")
-        print(f"[EVENTS] Online: {self.bot.user}")
+        logger.info("[EVENTS] on_ready called user=%s", self.bot.user)
 
     @raid.command(name="status", description="Mostra o status atual do anti-raid")
     async def raid_status(self, interaction: discord.Interaction):
@@ -878,6 +880,6 @@ class Events(commands.Cog):
 
 
 async def setup(bot):
-    print("[DEBUG] Carregando cog Events...")
+    logger.info("[COG] Loading Events")
     await bot.add_cog(Events(bot))
-    print("[DEBUG] Cog Events carregado com sucesso!")
+    logger.info("[COG] Events loaded")

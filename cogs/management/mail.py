@@ -789,6 +789,6 @@ class Utils(commands.Cog):
 
 
 async def setup(bot):
-    print("[DEBUG] Carregando cog Mail...")
+    logger.info("[COG] Loading Mail")
     await bot.add_cog(Utils(bot))
-    print("[DEBUG] Cog Mail carregado com sucesso!")
+    logger.info("[COG] Mail loaded")

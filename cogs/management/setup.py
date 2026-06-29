@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 import discord
 from discord import app_commands
@@ -7,6 +8,7 @@ from discord.ext import commands
 import scripts.db
 
 Database = scripts.db.Database
+logger = logging.getLogger(__name__)
 
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
@@ -654,6 +656,6 @@ class Setup(commands.Cog):
 
 
 async def setup(bot):
-    print("[DEBUG] Carregando cog Setup...")
+    logger.info("[COG] Loading Setup")
     await bot.add_cog(Setup(bot))
-    print("[DEBUG] Cog Setup carregado com sucesso!")
+    logger.info("[COG] Setup loaded")

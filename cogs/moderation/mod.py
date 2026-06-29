@@ -480,6 +480,6 @@ class Moderation(commands.Cog):
 
 
 async def setup(bot):
-    print("[DEBUG] Carregando cog Moderation...")
+    logger.info("[COG] Loading Moderation")
     await bot.add_cog(Moderation(bot))
-    print("[DEBUG] Cog Moderation carregado com sucesso!")
+    logger.info("[COG] Moderation loaded")

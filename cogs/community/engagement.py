@@ -1,4 +1,5 @@
 import random
+import logging
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -6,6 +7,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from scripts.db import Database
+
+logger = logging.getLogger(__name__)
 
 
 def tr(lang: str, pt: str, en: str, es: str) -> str:
@@ -257,7 +260,7 @@ class Engagement(commands.Cog):
                 week_key,
             )
         except Exception as exc:
-            print(f"[ENGAGEMENT] Failed to update mission progress for {message.author.id}: {exc}")
+            logger.warning("[ENGAGEMENT] Failed to update mission progress for user=%s: %s", message.author.id, exc)
 
     @app_commands.command(name="reputacao", description="Give +1 reputation to a member")
     async def rep(self, interaction: discord.Interaction, member: discord.Member):
@@ -796,6 +799,6 @@ class Engagement(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    print("[DEBUG] Carregando cog Engagement...")
+    logger.info("[COG] Loading Engagement")
     await bot.add_cog(Engagement(bot))
-    print("[DEBUG] Cog Engagement carregado com sucesso!")
+    logger.info("[COG] Engagement loaded")
